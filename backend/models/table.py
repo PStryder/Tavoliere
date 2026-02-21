@@ -26,6 +26,8 @@ class TableCreate(BaseModel):
     deck_recipe: DeckRecipe
     max_seats: int = 4
     settings: TableSettings = TableSettings()
+    research_mode: bool = False
+    research_mode_version: str = "0.1.0"
 
 
 class Table(BaseModel):
@@ -40,4 +42,6 @@ class Table(BaseModel):
     settings: TableSettings = TableSettings()
     dispute_active: bool = False
     dispute_action_id: str | None = None
+    research_mode: bool = False
+    research_mode_version: str = "0.1.0"
     created_at: datetime

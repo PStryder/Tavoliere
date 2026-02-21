@@ -7,6 +7,8 @@ from backend.auth.routes import router as auth_router
 from backend.api.tables import router as tables_router
 from backend.api.actions import router as actions_router
 from backend.api.chat import router as chat_router
+from backend.api.consent import router as consent_router
+from backend.api.research import router as research_router
 from backend.api.ws import router as ws_router
 from backend.config import settings
 
@@ -35,6 +37,8 @@ def create_app() -> FastAPI:
     app.include_router(tables_router)
     app.include_router(actions_router)
     app.include_router(chat_router)
+    app.include_router(research_router)
+    app.include_router(consent_router)
     app.include_router(ws_router)
 
     @app.get("/api/health")

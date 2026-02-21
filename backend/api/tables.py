@@ -13,6 +13,7 @@ from backend.engine.table_manager import (
     list_tables,
 )
 from backend.engine.visibility import filter_table_for_seat
+from backend.models.consent import AIParticipationMetadata
 from backend.models.seat import Seat
 from backend.models.table import Table, TableCreate, TableSettings
 
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/tables", tags=["tables"])
 
 class JoinRequest(BaseModel):
     display_name: str
+    ai_metadata: AIParticipationMetadata | None = None
 
 
 @router.post("", response_model=Table, status_code=status.HTTP_201_CREATED)
@@ -94,6 +96,7 @@ async def join_seat(
         identity_id=identity.effective_identity,
         display_name=req.display_name,
         player_kind=identity.player_kind,
+        ai_metadata=req.ai_metadata,
     )
     if seat is None:
         table = get_table(table_id)

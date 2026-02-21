@@ -1,8 +1,11 @@
+import secrets
 import uuid
 from datetime import datetime, timezone
 
 from backend.engine.deck import create_deck
 from backend.models.card import Card
+from backend.models.consent import AIParticipationMetadata
+from backend.models.research import ResearchConfig, compute_table_config_hash
 from backend.models.seat import PlayerKind, Presence, Seat
 from backend.models.table import Table, TableCreate
 from backend.models.zone import Zone, ZoneKind, ZoneVisibility
@@ -17,6 +20,8 @@ def create_table(req: TableCreate) -> Table:
         display_name=req.display_name,
         deck_recipe=req.deck_recipe,
         settings=req.settings,
+        research_mode=req.research_mode,
+        research_mode_version=req.research_mode_version,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -47,6 +52,31 @@ def create_table(req: TableCreate) -> Table:
     table.zones = [deck_zone, discard_zone, center_zone]
 
     _tables[table.table_id] = table
+
+    # Attach research observer if research mode is enabled
+    if req.research_mode:
+        from backend.engine.research_observer import ResearchObserver
+        from backend.engine.state import get_or_create_state
+
+        config_hash = compute_table_config_hash(
+            settings_dump=table.settings.model_dump(),
+            deck_recipe=table.deck_recipe.value,
+            max_seats=table.settings.max_seats,
+            ai_min_action_delay_ms=table.settings.min_action_delay_ms or None,
+            ai_latency_simulation_enabled=table.settings.min_action_delay_ms > 0,
+        )
+        config = ResearchConfig(
+            session_id=str(uuid.uuid4()),
+            identity_salt=secrets.token_hex(16),
+            research_mode_version=req.research_mode_version,
+            ai_min_action_delay_ms=table.settings.min_action_delay_ms or None,
+            ai_latency_simulation_enabled=table.settings.min_action_delay_ms > 0,
+            table_config_hash=config_hash,
+        )
+        observer = ResearchObserver(config)
+        state = get_or_create_state(table)
+        state.attach_research(observer)
+
     return table
 
 
@@ -67,6 +97,7 @@ def join_table(
     identity_id: str,
     display_name: str,
     player_kind: PlayerKind = PlayerKind.HUMAN,
+    ai_metadata: AIParticipationMetadata | None = None,
 ) -> Seat | None:
     """Join a seat at the table. Returns the Seat or None if table is full."""
     table = _tables.get(table_id)
@@ -121,6 +152,20 @@ def join_table(
         label=f"{display_name}'s Tricks",
     )
     table.zones.extend([hand_zone, meld_zone, tricks_zone])
+
+    # Register identity with research observer if active
+    if table.research_mode:
+        from backend.engine.state import get_state
+
+        state = get_state(table_id)
+        if state and state._research_observer:
+            state._research_observer.register_identity(
+                identity_id=identity_id,
+                seat_id=seat_id,
+                seat_type=player_kind.value,
+                display_name=display_name,
+                ai_metadata=ai_metadata,
+            )
 
     return seat
 

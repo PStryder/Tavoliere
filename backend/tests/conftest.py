@@ -16,6 +16,9 @@ def _clear_state():
     auth._principals.clear()
     auth._credentials.clear()
     auth._credentials_by_client_id.clear()
+    # Detach research observers before clearing states
+    for ts in st._table_states.values():
+        ts._research_observer = None
     st._table_states.clear()
     ae.get_rate_limiter().clear()
     cons._pending_actions.clear()

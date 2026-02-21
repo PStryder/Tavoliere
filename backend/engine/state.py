@@ -14,6 +14,11 @@ class TableState:
         self.event_log: list[Event] = []
         self.snapshots: dict[int, Snapshot] = {}
         self._seq = 0
+        self._research_observer = None
+
+    def attach_research(self, observer):
+        """Attach a ResearchObserver for parallel instrumentation."""
+        self._research_observer = observer
 
     def next_seq(self) -> int:
         self._seq += 1
@@ -64,6 +69,8 @@ class TableState:
             data=data or {},
         )
         self.event_log.append(event)
+        if self._research_observer:
+            self._research_observer.on_event(event, self.table)
         return event
 
     def generate_action_id(self) -> str:
