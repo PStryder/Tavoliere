@@ -1,0 +1,711 @@
+# Tavoliere — v0.1 Specification
+
+**A Neutral Digital Table for Human-Managed Play (UI + API, Event-Driven)**
+
+---
+
+## 1. Overview
+
+Tavoliere is a synchronized virtual card table.
+
+- It is **not** a game engine.
+- It does **not** encode rules.
+- It does **not** determine legality.
+- It does **not** score.
+
+It provides:
+
+- Objects
+- Zones
+- Visibility boundaries
+- A structured commit protocol
+- Negotiation and dispute mechanics
+
+Humans (and bots seated as players) run the game.
+
+---
+
+## 2. Goals
+
+- Support any 4-player card game without rule encoding.
+- Support non-standard decks (Euchre, Double Pinochle).
+- Preserve physical-table equivalence.
+- Make disputes first-class.
+- Prevent a single bad-faith player from breaking flow indefinitely.
+- Keep implementation minimal, deterministic, and API-first.
+
+---
+
+## 3. Non-Goals (v0.1)
+
+- No rule enforcement.
+- No scoring logic.
+- No win detection.
+- No AI moderation / rule-enforcement / officiation.
+- No persistence guarantee.
+- No matchmaking.
+- No subset-visibility (partner-only reveals).
+- No observers.
+
+> **Note:** AI as a seated participant is supported (see Section 21). "No AI assistance" refers to officiating, coaching, moderating, or enforcing.
+
+---
+
+## 4. Ephemeral Sessions
+
+v0.1 sessions are ephemeral.
+
+- Event log and state exist in-memory.
+- Server restart may destroy session.
+- Persistence is a future extension.
+
+---
+
+## 5. Core Invariants
+
+1. No canonical shared-state commit without required ACK.
+2. Any player may dispute at any time.
+3. Private state is never exposed automatically.
+4. Undo/redo are negotiated state transitions.
+5. Phases are labels, not enforced structures.
+6. The system never interprets legality or intent.
+7. UI and API expose identical per-seat information.
+   If a human in seat X cannot see it, the API for seat X must not return it (and vice versa).
+
+---
+
+## 6. Table Structure
+
+### 6.1 Table
+
+A Table contains:
+
+- `seats[]`
+- `zones[]`
+- `objects[]`
+- `event_log[]`
+- `snapshots[]`
+- `chat`
+- `host_seat_id`
+- `settings` (timeouts, windows, rate limits, optional AI pacing)
+
+UX optimized for 4 seats. Engine supports N.
+
+### 6.2 Host (v0.1)
+
+The Host:
+
+- Creates the table.
+- Selects:
+  - Target seat count.
+  - Deck recipe.
+  - Initial zone preset.
+- May mark seats absent.
+- May lock Phase temporarily.
+
+After start, all seats equal in gameplay authority.
+
+### 6.3 Seats
+
+Each Seat has:
+
+- `seat_id`
+- `display_name`
+- `presence` (active / disconnected / absent)
+- `ack_posture` (per action type)
+- `player_kind` metadata (human / ai) — non-authoritative; for transparency only
+- `identity_id` (authenticated principal; see Section 21)
+
+---
+
+## 7. Zones
+
+Three visibility categories:
+
+### 7.1 Public Zones
+
+Visible to all. Examples: `deck`, `discard`, `center`.
+
+### 7.2 Private Zones
+
+Visible only to owning seat. Example: `hand(seat_id)`.
+
+### 7.3 Seat-Owned Public Zones
+
+Publicly visible, associated with a seat. Examples: `meld(seat_id)`, `tricks_won(seat_id)`.
+
+Required for Pinochle and trick-taking games.
+
+### 7.4 Custom Zones (v0.1)
+
+Any seated player may propose creation of a custom zone. Zone creation is a Consensus Action.
+
+---
+
+## 8. Objects
+
+### 8.1 Cards
+
+Each card has:
+
+- `rank`
+- `suit`
+- `unique_id`
+
+Duplicate cards are distinct objects.
+
+**UI Requirement:** When duplicates exist, cards must be visually distinguishable via subtle marker (badge/suffix/hover short ID).
+
+---
+
+## 9. Deck Configuration
+
+Deck defined at table creation via Deck Recipe.
+
+Supported in v0.1:
+
+- **Standard 52**
+- **Euchre 24** (9–A)
+- **Double Pinochle 80** (4 copies 9–A per suit)
+
+Deck recipe controls instantiation only. No rules inferred.
+
+---
+
+## 10. Action Semantics
+
+Tavoliere defines three action classes.
+
+### 10.1 Unilateral Actions
+
+*(Immediate, non-disputable)*
+
+These affect only local arrangement or self-owned state and do not change shared object membership in a way that impacts other seats.
+
+**Examples:**
+
+- Reorder within `hand(seat)`
+- Reorder within `meld(seat)` (arrangement-only)
+- Reorder within `tricks_won(seat)` (arrangement-only)
+- Shuffle deck
+- Reveal your own private objects
+
+**Properties:**
+
+- Commit immediately.
+- Logged.
+- Undoable later via consensus.
+- Not disputable unless they alter object membership (arrangement-only changes are non-disputable).
+
+### 10.2 Consensus Actions
+
+*(Intent → ACK → Commit)*
+
+Used when:
+
+- Moving across visibility boundaries.
+- Changing shared table structure.
+- Undo/redo.
+- Batch deal/draw.
+- Moving membership into/out of public zones.
+
+**Flow:**
+
+1. Intent created.
+2. Required ACK set determined (default: all active seats).
+3. Pending state.
+4. On full ACK → Commit.
+5. Any NACK → Dispute Mode.
+
+**Examples:**
+
+- Move hand → center
+- DealRoundRobin
+- Move center → tricks_won
+- Move hand → meld
+- Create zone
+- Undo
+
+### 10.3 Optimistic Actions
+
+*(Commit immediately, objection window)*
+
+These affect shared context or high-frequency shared actions and should feel fluid.
+
+**Examples:**
+
+- `SetPhase(label)`
+- PlayCardToCenter (if AUTO_ACK active)
+- TrickCollect (if AUTO_ACK active)
+- Optional: Shuffle (if table setting enabled)
+
+**Properties:**
+
+- Commit immediately.
+- Enter Objection Window (default 3 seconds).
+- If disputed during window:
+  - Roll back to pre-commit snapshot.
+  - Enter Dispute Mode.
+- If no dispute:
+  - Finalize.
+
+---
+
+## 11. Standing ACK Posture (Unified)
+
+Seats may enable AUTO_ACK per action type.
+
+When all required seats have AUTO_ACK for an action:
+
+- That Consensus Action is treated as Optimistic (commit immediately + objection window).
+
+Standing ACK and Optimistic actions share identical objection-window mechanics.
+
+---
+
+## 12. Shuffle & Deal
+
+### Shuffle
+
+- Unilateral by default.
+- Logged.
+- Rate limited (see Governance).
+- Optional: table setting can make Shuffle Optimistic.
+
+### DealBatch / DealRoundRobin
+
+- Consensus.
+- Batch primitives required.
+- Deterministic ordering.
+
+---
+
+## 13. Reveal
+
+### Self-Reveal
+
+Unilateral.
+
+### Revealing Others
+
+Impossible by system design.
+
+Subset reveal (partner-only) is future extension.
+
+---
+
+## 14. Undo / Redo
+
+- Undo is a Consensus Action.
+- Moves HEAD pointer.
+- Rebuild via snapshot + replay.
+- No privileged admin undo.
+
+---
+
+## 15. Dispute Mode
+
+**Triggered by:**
+
+- NACK on Consensus Action.
+- Objection during Optimistic window.
+
+**Effects:**
+
+- Canonical commits pause.
+- Negotiation occurs via chat.
+- Resolution via:
+  - Revised intent
+  - Cancel intent
+  - Undo
+  - Mark seat absent (host)
+
+---
+
+## 16. Governance & Anti-Grief (v0.1)
+
+Tavoliere assumes good faith but prevents unbounded disruption.
+
+### 16.1 Rate Limits (Defaults)
+
+**Per seat:**
+
+- Dispute cooldown: max 1 dispute per 3 seconds.
+- Phase change cooldown: max 1 per 10 seconds.
+- Shuffle cooldown: max 1 per 15 seconds.
+- Intent rate limit: max 3 intents per 5 seconds.
+- Pending cap: only 1 pending Consensus Intent per seat.
+
+**Per table:**
+
+- Optional: global intent rate cap (to protect server).
+
+### 16.2 Objection Window
+
+- Default: 3 seconds (configurable 2–5).
+- Late objections require Undo (Consensus).
+- No window extensions.
+
+### 16.3 Dispute Requirements
+
+- Dispute must reference specific action ID.
+- Optional reason tag: Rules / Turn / Clarify / Other.
+- Dispute does not auto-generate a corrective action.
+
+### 16.4 Host Controls
+
+Host may:
+
+- Mark seat absent after timeout (default: 60 seconds unresponsive for ACK-required actions).
+- Remove absent seat from required ACK sets.
+- Restore seat when reconnected.
+- Temporarily lock Phase changes.
+- Optional: lock Shuffle-to-Optimistic policy.
+
+> **Rationale:** mirrors physical play — eventually you continue without the missing player.
+
+### 16.5 Action Flood Protection
+
+- Rate limiting enforced.
+- Only one pending Consensus Intent per seat.
+- Zone creation has cooldown (recommended: 1 per 30 seconds per seat).
+
+### 16.6 Transparency
+
+All disruptive actions visibly attributed:
+
+- "Seat B disputed Action #143"
+- "Seat C shuffled deck"
+
+Visibility discourages abuse.
+
+---
+
+## 17. Score Tracking (v0.1)
+
+- No score objects.
+- Players track score via chat.
+- Scorepad object is a likely early post-v0.1 extension.
+
+---
+
+## 18. Success Criteria
+
+v0.1 is successful when:
+
+- 4 players can play Euchre end-to-end.
+- 4 players can play Double Pinochle end-to-end.
+- Dealing is batch and smooth.
+- Trick play feels fluid with AUTO_ACK.
+- Self-reveal behaves like physical table.
+- Disputes resolve via chat.
+- A single bad-faith player cannot freeze play indefinitely.
+- No rules are encoded anywhere.
+- UI and API clients can both fully participate.
+
+---
+
+## 19. Future Extensions (Not v0.1)
+
+- Subset visibility zones (partner-only reveals)
+- Scorepad object
+- Observers
+- Persistence & durable logs
+- Fine-grained ACK sets
+- Table templates
+- Vote-based governance
+
+---
+
+## 20. Interface Architecture (UI + API)
+
+### 20.1 Dual Interface Principle (API-First)
+
+Tavoliere is API-first.
+
+- The API is the primary interface.
+- The UI is a client that consumes the API.
+- The table does not care whether a seat is controlled by a human UI client or an AI/API client.
+
+### 20.2 Visibility Equivalence Invariant
+
+For any seat S:
+
+- The API must expose exactly the information that seat S's UI would show.
+- The API must not expose hidden/private information not visible to that seat.
+
+This extends physical equivalence to interfaces: if you can't see it at the table, you can't read it via API.
+
+### 20.3 Event-Driven Communication Model
+
+Tavoliere is event-driven.
+
+Clients (UI and AI) must receive updates as a stream:
+
+- State changes (commits, rollbacks, pending intents)
+- ACK/NACK events
+- Dispute events
+- Chat messages
+- Presence changes
+- Phase changes
+
+**Transport options (v0.1 implementation choices):**
+
+- WebSockets (recommended)
+- SSE for UI
+- WebSockets / long-poll for AI clients
+- Webhooks may be added later but are not required.
+
+Clients should not rely on polling for correctness.
+
+### 20.4 Canonical Structured State & Event Schema
+
+The API must provide machine-readable schemas for:
+
+- Table state
+- Seats and presence
+- Zones and visibility
+- Objects (including duplicate cards)
+- Pending actions and ACK status
+- Dispute status
+- Chat messages
+- Phase label
+
+Schema must be stable enough for AI clients to parse and reason over.
+
+---
+
+## 21. Player Identity & Authentication
+
+### 21.1 Authenticated Seat Identity
+
+Seats must be bound to authenticated principals.
+
+**v0.1 requirements:**
+
+- Joining a table/seat requires an authenticated token.
+- ACKs, disputes, and chat messages must be attributable to the authenticated identity.
+
+**v0.1 acceptable mechanisms:**
+
+- Invite links with embedded tokens for human UI
+- API keys / bearer tokens for AI clients
+- Session tokens for browser clients
+
+### 21.2 Entity-Agnostic Participation
+
+- All seats are functionally identical.
+- Human seats and AI seats have the same action capabilities.
+- The system does not enforce different rules based on player type.
+
+### 21.3 AI Seat Transparency
+
+Physical equivalence implies you know who is at the table.
+
+Therefore:
+
+- Seats controlled by AI clients should be visibly flagged as AI in UI and returned as metadata in the API.
+- This is disclosure, not restriction.
+
+### 21.4 AI Constraints Clarification
+
+**Prohibited (non-goals):**
+
+- AI acting as moderator/referee/rules enforcer.
+- AI granting advantages by seeing hidden state.
+
+**Allowed:**
+
+- AI as a seated participant, interacting only via per-seat visible state + the same action primitives.
+
+---
+
+## 22. Chat Protocol (Structured Stream)
+
+### 22.1 Chat is First-Class State
+
+Chat is the negotiation layer, and must be available equally to UI and API clients.
+
+**Requirements:**
+
+- Send message via API
+- Receive message via event stream
+- Attribute messages to authenticated identity + seat_id
+
+### 22.2 Chat in the Event Log
+
+Chat messages are part of the table's social record.
+
+- Chat events are appended to the event stream/log (even if not used for state replay in v0.1).
+- Clients can reconstruct the conversation for the session.
+
+### 22.3 Per-Intent Threads (Optional)
+
+v0.1 may support:
+
+- a table-wide channel (required)
+- optional per-intent thread channel (nice-to-have)
+
+---
+
+## 23. Reference Implementation — v0.1 Technical Stack
+
+This section defines the reference implementation stack for Tavoliere v0.1.
+
+It is not a permanent constraint for future versions, but it is the canonical stack for the initial build.
+
+### 23.1 Language
+
+**Python 3.11+**
+
+Rationale:
+
+- Strong async support.
+- Mature WebSocket ecosystem.
+- Excellent data modeling libraries.
+- Ideal for AI-adjacent tooling and API-first design.
+
+### 23.2 API Framework — FastAPI
+
+FastAPI is the required API framework for v0.1.
+
+Reasons:
+
+- Native async/await support.
+- Built-in WebSocket support (critical for event-driven model).
+- Automatic OpenAPI schema generation.
+- Tight integration with Pydantic.
+
+The automatic OpenAPI schema generation is a core architectural benefit:
+
+- AI clients must be able to consume a machine-readable API description.
+- FastAPI generates this automatically.
+- The API documentation is therefore part of the system contract.
+
+The OpenAPI spec produced by FastAPI is considered part of the Tavoliere interface surface.
+
+### 23.3 Data Modeling — Pydantic
+
+All canonical state models must be defined using Pydantic models.
+
+This includes:
+
+- Card objects
+- Zones
+- Seats
+- Table state
+- Action intents
+- ACK/NACK events
+- Dispute events
+- Chat messages
+- Event log entries
+- Snapshot schema
+
+**Requirements:**
+
+- All inbound payloads validated via Pydantic.
+- All outbound state serialized via Pydantic.
+- The Pydantic models define the canonical schema for both UI and AI clients.
+- The OpenAPI schema derives directly from these models.
+
+This ensures:
+
+- Strong type validation.
+- Deterministic serialization.
+- Single source of truth for API contract.
+- Machine-readable structure for AI agents.
+
+### 23.4 State Management — In-Memory Only (v0.1)
+
+v0.1 uses in-memory state only.
+
+**Implementation:**
+
+- Python dicts for table registry.
+- Python dicts/lists for: Tables, Seats, Zones, Objects, Event logs, Snapshots.
+- Dataclasses or Pydantic models for structured entities.
+
+No database. No Redis. No persistence layer.
+
+Sessions are explicitly ephemeral (see Section 4).
+
+If the process restarts, state is lost. This is acceptable and intentional for v0.1.
+
+### 23.5 ASGI Server — Uvicorn
+
+uvicorn is the required ASGI server for v0.1.
+
+Reasons:
+
+- Native FastAPI support.
+- WebSocket support.
+- Lightweight.
+- Deployable to Fly.io without friction.
+- Suitable for event-driven concurrency model.
+
+### 23.6 Concurrency Model
+
+- Fully async.
+- No blocking I/O inside request or WebSocket handlers.
+- Event stream delivered via WebSocket per seat.
+
+Each connected seat maintains:
+
+- Authenticated identity context.
+- Live event stream subscription.
+- Visibility-filtered state feed.
+
+### 23.7 Deployment Target (Reference)
+
+Reference deployment target:
+
+- Fly.io
+- Single-instance runtime for v0.1
+- No horizontal scaling required
+
+Scaling, persistence, and distributed state are future concerns.
+
+### 23.8 Architectural Constraint
+
+The implementation must preserve:
+
+- API-first design.
+- Identical UI/API data exposure per seat.
+- Deterministic event log.
+- Clear separation between:
+  - Intent creation
+  - ACK resolution
+  - Commit
+  - Dispute
+  - Rollback
+
+The tech stack is selected specifically to support these properties cleanly and transparently.
+
+### 23.9 Explicit Non-Requirements (v0.1)
+
+- No ORM
+- No relational database
+- No message broker
+- No distributed lock manager
+- No background task queue
+
+Tavoliere v0.1 is a single-process, deterministic, in-memory event surface.
+
+---
+
+## Optional Note: AI Pace Settings (v0.1)
+
+AI clients may respond faster than humans.
+
+v0.1 supports a table setting (optional):
+
+- `min_action_delay_ms` per seat or per table
+- Used to simulate human pace if desired
+- Not required for correctness or fairness (since rules aren't enforced), but useful for experience.
+
+---
+
+**Backend:** FastAPI + Pydantic + uvicorn, single Fly machine
+**Frontend:** React + Vite + Tailwind, served from the same Fly machine
+**Comms:** WebSocket for event stream, REST for actions and table management
+**State:** In-memory Python, no database
