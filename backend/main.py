@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from backend.auth.routes import router as auth_router
 from backend.api.tables import router as tables_router
@@ -44,6 +46,19 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health():
         return {"status": "ok"}
+
+    # Serve React SPA — all non-API routes return index.html
+    frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = frontend_dist / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        index = frontend_dist / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        return {"detail": "Frontend not built. Run: cd frontend && npm run build"}
 
     return app
 
