@@ -18,6 +18,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from backend.models.schema_version import RESEARCH_EVENT_SCHEMA_VERSION
+
 # ---------------------------------------------------------------------------
 # Ethical boundary — machine-readable constant
 # ---------------------------------------------------------------------------
@@ -129,6 +131,7 @@ class RngProvenance(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ResearchEvent(BaseModel):
+    schema_version: str = RESEARCH_EVENT_SCHEMA_VERSION
     event_id: str  # UUID
     table_id: str
     session_id: str

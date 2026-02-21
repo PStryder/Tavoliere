@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from backend.models.schema_version import EVENT_SCHEMA_VERSION
+
 
 class EventType(str, Enum):
     ACTION_COMMITTED = "action_committed"
@@ -24,6 +26,7 @@ class EventType(str, Enum):
 
 
 class Event(BaseModel):
+    schema_version: str = EVENT_SCHEMA_VERSION
     seq: int
     event_type: EventType
     table_id: str
