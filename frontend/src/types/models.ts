@@ -18,6 +18,9 @@ export interface Card {
   rank: Rank;
   suit: Suit;
   face_up: boolean;
+  template_id?: string;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Zone {
@@ -27,6 +30,10 @@ export interface Zone {
   owner_seat_id: string | null;
   card_ids: string[];
   label: string;
+  capacity?: number | null;
+  ordering?: string;
+  seat_visibility?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface AckPosture {
@@ -60,6 +67,33 @@ export interface TableSettings {
   zone_create_cooldown_s: number;
 }
 
+export interface ShuffleState {
+  shuffled_by?: string | null;
+  shuffled_at?: string | null;
+  seed?: string | null;
+}
+
+export interface TurnState {
+  active_seat_id?: string | null;
+  phase_label?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface Scratchpad {
+  scratchpad_id: string;
+  visibility: "public" | "private";
+  owner_seat_id?: string | null;
+  content: string;
+  last_modified_by?: string | null;
+  last_modified_at?: string | null;
+}
+
+export interface ScratchpadEdit {
+  scratchpad_id: string;
+  action: "propose_edit" | "append" | "clear" | "replace";
+  content?: string;
+}
+
 export interface TableState {
   table_id: string;
   display_name: string;
@@ -75,6 +109,9 @@ export interface TableState {
   research_mode: boolean;
   research_mode_version: string;
   created_at: string;
+  shuffle_state?: ShuffleState;
+  turn_state?: TurnState;
+  scratchpads?: Record<string, Scratchpad>;
 }
 
 export interface ActionIntent {

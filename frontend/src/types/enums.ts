@@ -31,6 +31,7 @@ export enum ZoneVisibility {
   PUBLIC = "public",
   PRIVATE = "private",
   SEAT_PUBLIC = "seat_public",
+  SHARED_CONTROL = "shared_control",
 }
 
 export enum ZoneKind {
@@ -41,6 +42,8 @@ export enum ZoneKind {
   MELD = "meld",
   TRICKS_WON = "tricks_won",
   CUSTOM = "custom",
+  TRICK_PLAY = "trick_play",
+  SCRATCHPAD = "scratchpad",
 }
 
 export enum Presence {
@@ -90,6 +93,7 @@ export enum EventType {
   ZONE_CREATED = "zone_created",
   ACK_POSTURE_CHANGED = "ack_posture_changed",
   TABLE_DESTROYED = "table_destroyed",
+  SCRATCHPAD_EDITED = "scratchpad_edited",
 }
 
 export enum DisputeReason {

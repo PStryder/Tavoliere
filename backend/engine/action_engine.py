@@ -1,12 +1,14 @@
 import random
+import secrets
 import uuid
+from datetime import datetime, timezone
 
 from backend.engine.rate_limiter import RateLimiter, RateLimitError
 from backend.engine.state import TableState
 from backend.models.action import ActionClass, ActionIntent, ActionResult, ActionType, PendingAction
 from backend.models.event import EventType
 from backend.models.seat import Seat
-from backend.models.table import Table
+from backend.models.table import ShuffleState, Table
 from backend.models.zone import Zone, ZoneVisibility
 
 # Global rate limiter instance
@@ -59,24 +61,29 @@ def execute_unilateral(
     action_id = table_state.generate_action_id()
     table_state.take_snapshot()
 
+    extra_data = {}
+
     if intent.action_type == ActionType.REORDER:
         _apply_reorder(intent, seat, table)
     elif intent.action_type == ActionType.SHUFFLE:
-        _apply_shuffle(intent, table)
+        extra_data = _apply_shuffle(intent, seat, table)
     elif intent.action_type == ActionType.SELF_REVEAL:
         _apply_self_reveal(intent, seat, table)
     else:
         return ActionResult(action_id=action_id, status="rejected", reason="Unknown unilateral action")
 
+    event_data = {
+        "action_type": intent.action_type.value,
+        "action_class": ActionClass.UNILATERAL.value,
+        "intent": intent.model_dump(mode="json"),
+    }
+    event_data.update(extra_data)
+
     table_state.append_event(
         event_type=EventType.ACTION_COMMITTED,
         seat_id=seat.seat_id,
         action_id=action_id,
-        data={
-            "action_type": intent.action_type.value,
-            "action_class": ActionClass.UNILATERAL.value,
-            "intent": intent.model_dump(mode="json"),
-        },
+        data=event_data,
     )
 
     return ActionResult(action_id=action_id, status="committed")
@@ -95,12 +102,26 @@ def _apply_reorder(intent: ActionIntent, seat: Seat, table: Table) -> None:
     zone.card_ids = intent.new_order
 
 
-def _apply_shuffle(intent: ActionIntent, table: Table) -> None:
-    """Shuffle the deck zone."""
+def _apply_shuffle(intent: ActionIntent, seat: Seat, table: Table) -> dict:
+    """Shuffle the deck zone with a deterministic seed."""
     deck = _find_zone(table, "deck")
     if not deck:
         raise ValueError("Deck zone not found")
-    random.shuffle(deck.card_ids)
+
+    seed = secrets.token_hex(16)
+    rng = random.Random(seed)
+    rng.shuffle(deck.card_ids)
+
+    table.shuffle_state = ShuffleState(
+        shuffled_by=seat.seat_id,
+        shuffled_at=datetime.now(timezone.utc),
+        seed=seed,
+    )
+
+    return {
+        "shuffle_seed": seed,
+        "deck_order_after": list(deck.card_ids),
+    }
 
 
 def _apply_self_reveal(intent: ActionIntent, seat: Seat, table: Table) -> None:

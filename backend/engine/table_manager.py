@@ -6,6 +6,7 @@ from backend.engine.deck import create_deck
 from backend.models.card import Card
 from backend.models.consent import AIParticipationMetadata
 from backend.models.research import ResearchConfig, compute_table_config_hash
+from backend.models.scratchpad import Scratchpad, ScratchpadVisibility
 from backend.models.seat import PlayerKind, Presence, Seat
 from backend.models.table import Table, TableCreate
 from backend.models.zone import Zone, ZoneKind, ZoneVisibility
@@ -50,6 +51,12 @@ def create_table(req: TableCreate) -> Table:
         label="Center",
     )
     table.zones = [deck_zone, discard_zone, center_zone]
+
+    # Create public scratchpad
+    table.scratchpads["public_scratchpad"] = Scratchpad(
+        scratchpad_id="public_scratchpad",
+        visibility=ScratchpadVisibility.PUBLIC,
+    )
 
     _tables[table.table_id] = table
 
@@ -184,6 +191,14 @@ def join_table(
         label=f"{display_name}'s Tricks",
     )
     table.zones.extend([hand_zone, meld_zone, tricks_zone])
+
+    # Create private scratchpad for this seat
+    sp_id = f"notes_{seat_id}"
+    table.scratchpads[sp_id] = Scratchpad(
+        scratchpad_id=sp_id,
+        visibility=ScratchpadVisibility.PRIVATE,
+        owner_seat_id=seat_id,
+    )
 
     # Register identity with research observer if active
     if table.research_mode:

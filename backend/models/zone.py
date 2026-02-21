@@ -1,12 +1,13 @@
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ZoneVisibility(str, Enum):
     PUBLIC = "public"
     PRIVATE = "private"
     SEAT_PUBLIC = "seat_public"
+    SHARED_CONTROL = "shared_control"
 
 
 class ZoneKind(str, Enum):
@@ -17,6 +18,14 @@ class ZoneKind(str, Enum):
     MELD = "meld"
     TRICKS_WON = "tricks_won"
     CUSTOM = "custom"
+    TRICK_PLAY = "trick_play"
+    SCRATCHPAD = "scratchpad"
+
+
+class ZoneOrdering(str, Enum):
+    STACKED = "stacked"
+    ORDERED = "ordered"
+    UNORDERED = "unordered"
 
 
 class Zone(BaseModel):
@@ -26,3 +35,7 @@ class Zone(BaseModel):
     owner_seat_id: str | None = None
     card_ids: list[str] = []
     label: str = ""
+    capacity: int | None = None
+    ordering: ZoneOrdering = ZoneOrdering.ORDERED
+    seat_visibility: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)

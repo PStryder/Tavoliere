@@ -40,7 +40,13 @@ def filter_table_for_seat(table: Table, seat_id: str) -> dict:
                 if card and card.face_up:
                     visible_cards[cid] = card.model_dump()
 
-    return {
+    # Filter scratchpads — private pads only shown to owner, public to all
+    filtered_scratchpads = {}
+    for sp_id, sp in table.scratchpads.items():
+        if sp.visibility.value == "public" or sp.owner_seat_id == seat_id:
+            filtered_scratchpads[sp_id] = sp.model_dump()
+
+    result = {
         "table_id": table.table_id,
         "display_name": table.display_name,
         "deck_recipe": table.deck_recipe.value,
@@ -55,10 +61,28 @@ def filter_table_for_seat(table: Table, seat_id: str) -> dict:
         "created_at": table.created_at.isoformat(),
     }
 
+    if table.scratchpads:
+        result["scratchpads"] = filtered_scratchpads
+
+    if table.shuffle_state:
+        result["shuffle_state"] = table.shuffle_state.model_dump()
+
+    if table.turn_state:
+        result["turn_state"] = table.turn_state.model_dump()
+
+    return result
+
 
 def _can_see_contents(zone: Zone, seat_id: str) -> bool:
     """Check if a seat can see the contents of a zone."""
+    # seat_visibility narrowing: if non-empty, only listed seat_ids can see
+    if zone.seat_visibility and seat_id not in zone.seat_visibility:
+        return False
+
     if zone.visibility == ZoneVisibility.PUBLIC:
+        return True
+    if zone.visibility == ZoneVisibility.SHARED_CONTROL:
+        # Visible to all (like PUBLIC), write-gated by consensus elsewhere
         return True
     if zone.visibility == ZoneVisibility.SEAT_PUBLIC:
         return True

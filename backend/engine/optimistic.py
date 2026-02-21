@@ -141,7 +141,9 @@ def _apply_optimistic_mutation(intent: ActionIntent, seat: Seat, table: Table) -
     if intent.action_type == ActionType.SET_PHASE:
         if table.settings.phase_locked:
             raise ValueError("Phase changes are locked")
-        table.phase = intent.phase_label or ""
+        new_phase = intent.phase_label or ""
+        table.phase = new_phase
+        table.turn_state.phase_label = new_phase
     else:
         # Promoted consensus actions use the same mutation logic
         _apply_consensus_mutation(intent, seat.seat_id, table)

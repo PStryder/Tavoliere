@@ -49,6 +49,9 @@ class TableState:
         self.table.phase = restored.phase
         self.table.dispute_active = restored.dispute_active
         self.table.dispute_action_id = restored.dispute_action_id
+        self.table.shuffle_state = restored.shuffle_state
+        self.table.turn_state = restored.turn_state
+        self.table.scratchpads = restored.scratchpads
         return True
 
     def append_event(

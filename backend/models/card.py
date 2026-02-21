@@ -1,6 +1,7 @@
+from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Suit(str, Enum):
@@ -37,3 +38,6 @@ class Card(BaseModel):
     rank: Rank
     suit: Suit
     face_up: bool = False
+    template_id: str = ""
+    created_at: datetime | None = None
+    metadata: dict = Field(default_factory=dict)

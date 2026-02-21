@@ -16,6 +16,7 @@ from backend.api.profile import router as profile_router
 from backend.api.admin import router as admin_router
 from backend.api.conventions import router as conventions_router
 from backend.api.research_sessions import router as research_sessions_router
+from backend.api.scratchpad import router as scratchpad_router
 from backend.api.ws import router as ws_router
 from backend.config import settings
 
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(conventions_router)
     app.include_router(research_sessions_router)
+    app.include_router(scratchpad_router)
     app.include_router(ws_router)
 
     @app.get("/api/health")

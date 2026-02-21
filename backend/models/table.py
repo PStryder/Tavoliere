@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -5,6 +7,18 @@ from pydantic import BaseModel, Field
 from backend.models.card import Card, DeckRecipe
 from backend.models.seat import Seat
 from backend.models.zone import Zone
+
+
+class ShuffleState(BaseModel):
+    shuffled_by: str | None = None
+    shuffled_at: datetime | None = None
+    seed: str | None = None
+
+
+class TurnState(BaseModel):
+    active_seat_id: str | None = None
+    phase_label: str = ""
+    metadata: dict = Field(default_factory=dict)
 
 
 class TableSettings(BaseModel):
@@ -45,3 +59,14 @@ class Table(BaseModel):
     research_mode: bool = False
     research_mode_version: str = "0.1.0"
     created_at: datetime
+    shuffle_state: ShuffleState = Field(default_factory=ShuffleState)
+    turn_state: TurnState = Field(default_factory=TurnState)
+    scratchpads: dict[str, "Scratchpad"] = Field(default_factory=dict)
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+# Deferred import to avoid circular dependency
+from backend.models.scratchpad import Scratchpad  # noqa: E402
+
+Table.model_rebuild()
