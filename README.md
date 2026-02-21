@@ -1,73 +1,98 @@
 # Tavoliere
 
-A rule-agnostic virtual card table. No game rules encoded — players negotiate, agree, and manage the game themselves. Proof-of-concept for a **consensus mediation system** where human and AI participants coordinate under ambiguous norms.
+[![PyPI](https://img.shields.io/pypi/v/tavoliere)](https://pypi.org/project/tavoliere)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/github/license/PStryder/Tavoliere)](LICENSE)
 
-## Why
+**Tavoliere** is a *rule-agnostic*, **consensus-based virtual card table**, designed as a proof-of-concept for mediated coordination between peers — human and AI — under ambiguous norms.
 
-Most digital card games hard-code rules. Tavoliere inverts this: the system provides a neutral surface with cards, zones, and visibility boundaries, but never interprets legality. Players propose actions, acknowledge or dispute them, and resolve disagreements through chat. This makes it an instrument for studying how groups form and enforce norms without external authority — the core question behind **SPQ-AN** (Social Participation Quality under Ambiguous Norms).
+Unlike most digital card platforms, Tavoliere does **not encode game rules**.
+Players **propose actions**, **acknowledge or dispute**, and **negotiate resolution through chat**.
+This makes it not just a gameplay surface, but **an instrument for studying social coordination and norm formation** — the core questions behind the **SPQ-AN evaluation framework**.
 
-## How It Works
+---
 
-### Three Action Types
+## 🧠 Core Principles
+
+- **Rule-Agnostic:** No legality checks, no referees, no enforcement.
+- **Consensus Mediation:** Shared state changes require ACKs; disputes pause play.
+- **Human and AI Peers:** All participants are equal first-class citizens.
+- **Event-Driven API:** Real-time state sync via WebSockets.
+- **Research-Ready:** Optional Research Mode logs structured consensus events.
+
+---
+
+## 🚦 How It Works
+
+### Action Types
 
 | Type | Flow | Example |
 |------|------|---------|
 | **Unilateral** | Immediate, non-disputable | Reorder your hand, shuffle the deck |
-| **Consensus** | Intent &rarr; ACK from all seats &rarr; Commit | Move a card, deal round-robin |
-| **Optimistic** | Commit immediately + objection window (3-5s) | Change phase, auto-ACK'd moves |
+| **Consensus** | Intent → ACK from all seats → Commit | Move a card, deal round-robin |
+| **Optimistic** | Commit immediately + objection window (3–5s) | Phase changes, auto-ACK'd moves |
 
 ### Visibility Boundaries
 
-- **Public zones** (deck, discard, center) — visible to all
-- **Private zones** (hand) — only the owner sees contents
-- **Seat-public zones** (melds, tricks) — visible to all, owned by a seat
+- **Public zones:** e.g., deck, discard, center — visible to all.
+- **Private zones:** e.g., hand — visible only to the owner.
+- **Seat-public zones:** e.g., melds, trick piles — visible to all, owned by a seat.
 
-The system enforces visibility at the API layer. Private card contents never leave the server for non-owners.
+The system enforces visibility at the API layer.
 
-### Dispute Resolution
+---
 
-Any seated player can NACK a consensus action or dispute an optimistic action within its objection window. Disputes pause the table — no new actions until resolved. Resolution happens through chat negotiation, not system adjudication.
+## 👥 Dispute & Negotiation
 
-## Architecture
+Any seated player may:
+
+- **NACK** a consensus intent
+- **Dispute** an optimistic action within its objection window
+
+Disputes pause the table — no new shared actions until resolved through negotiation (chat or revised intent).
+
+---
+
+## 📦 Architecture
 
 ```
 backend/
-  models/      Pydantic models — the canonical schema
-  engine/      State machine, action classification, consensus, visibility
-  api/         REST endpoints + WebSocket (event-driven)
-  auth/        Principal/credential auth, JWT tokens
-  tests/       pytest suite
+  models/      # Pydantic API + domain models
+  engine/      # State machine, consensus logic
+  api/         # FastAPI REST + WebSocket
+  auth/        # Auth (JWT)
+  tests/       # pytest suite
 ```
 
-All state is in-memory and ephemeral. No database — sessions exist for the duration of the server process.
+- **State:** In-memory, ephemeral (no database)
+- **Event Sourcing:** All mutations produce sequenced `Event` records
+- **Snapshot + Rollback:** Optimistic actions can be rolled back
+- **AUTO_ACK:** Promotes consensus to optimistic flow when all seats opt in
+- **Rate Limiting:** Prevents grief (shuffle spam, flood, etc.)
 
-### Key Design Decisions
+---
 
-- **Event-sourced state**: Every mutation produces an `Event` with monotonic sequence number. The event log is the source of truth.
-- **Snapshot + rollback**: Snapshots are taken before mutations. Optimistic actions that get disputed roll back to the pre-commit snapshot.
-- **AUTO_ACK promotion**: When all seats enable auto-acknowledge for an action type, consensus actions are promoted to optimistic (faster flow, still disputable).
-- **Rate limiting**: Per-seat, per-action-type cooldowns prevent grief (shuffle spam, phase change floods, action flooding).
+## 📊 Research Mode (SPQ-AN)
 
-## Research Mode
+Tables may be created with:
 
-Tables can be created with `research_mode: true` to enable a parallel instrumentation layer for SPQ-AN studies. This adds:
+```json
+{ "research_mode": true }
+```
 
-- **ResearchObserver** — attaches to `TableState`, enriches gameplay events into a separate write-only log with action enrichments, visibility transitions, ACK/dispute latencies, RNG provenance, and chat metadata
-- **Identity anonymization** — SHA256 hashing with per-session salt, pseudonym generation (`P-{hash[:8]}`)
-- **Consent management** — 7 tiered opt-ins (research logging, chat storage, training use, publication, publication excerpts, longitudinal linking, AI disclosure acknowledgment)
-- **Longitudinal linking** — cross-session identity linking only when explicitly consented; scrubbed on revocation
-- **Table configuration hash** — SHA256 of all settings (objection window, rate limits, shuffle policy, AI pacing, deck recipe, seat count) for machine-verifiable reproducibility
-- **AI latency simulation flags** — records whether AI timing was raw or artificially paced, since timing distribution is a behavioral signature that affects SPQ-AN metrics
+This enables:
 
-Zero overhead when research mode is off — a single `if None` branch per event.
+- **ResearchObserver:** emits enriched event logs (ACK latencies, dispute timing, RNG provenance)
+- **Identity anonymization:** SHA256 pseudonyms
+- **Consent tiers:** research logging, chat storage, training use, publication, longitudinal linking, AI membership disclosure
+- **Reproducibility:** machine-verifiable config hash
+- **AI latency flags:** captures whether AI actions were temporally simulated
 
-### Ethical Boundary
+> **Ethical Boundary:** The Tavoliere research corpus shall not be used to covertly manipulate or psychologically steer participants without knowledge and consent — enforced in code as `RESEARCH_ETHICAL_BOUNDARY`.
 
-> The Tavoliere research corpus shall not be used to develop systems intended to covertly manipulate, exploit, or psychologically steer human participants without their knowledge and consent.
+---
 
-This is enforced as a machine-readable constant (`RESEARCH_ETHICAL_BOUNDARY`) in `backend/models/research.py`.
-
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # Install dependencies
@@ -76,80 +101,105 @@ uv sync --extra dev
 # Run the server
 uv run uvicorn backend.main:app --reload
 
-# Run tests (146 passing)
+# Run tests
 uv run pytest
 ```
 
-## API Overview
+---
+
+## 📡 API Overview
 
 ### Authentication
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /dev/bootstrap` | Create a principal with N credentials (dev only) |
-| `POST /api/token` | Exchange client_id/secret for JWT |
+| `POST /dev/bootstrap` | Create a principal (dev only) |
+| `POST /api/token` | Exchange credentials for JWT |
 
 ### Tables
 
 | Endpoint | Description |
 |----------|-------------|
 | `POST /api/tables` | Create table (with optional `research_mode`) |
-| `GET /api/tables` | List tables (summary) |
-| `GET /api/tables/{id}` | Get visibility-filtered table state |
-| `POST /api/tables/{id}/join` | Join a seat (with optional `ai_metadata`) |
-| `POST /api/tables/{id}/leave` | Leave seat |
-| `PATCH /api/tables/{id}/settings` | Update settings (host only) |
+| `GET /api/tables` | List tables |
+| `GET /api/tables/{id}` | Get seat-filtered state |
+| `POST /api/tables/{id}/join` | Join seat |
+| `PATCH /api/tables/{id}/settings` | Update table (host only) |
 | `DELETE /api/tables/{id}` | Destroy table (host only) |
 
 ### Actions
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /api/tables/{id}/actions` | Submit action intent |
-| `POST /api/tables/{id}/actions/{aid}/ack` | ACK a consensus action |
-| `POST /api/tables/{id}/actions/{aid}/nack` | NACK (triggers dispute) |
+| `POST /api/tables/{id}/actions` | Submit intent |
+| `POST /api/tables/{id}/actions/{aid}/ack` | ACK intent |
+| `POST /api/tables/{id}/actions/{aid}/nack` | NACK (initiate dispute) |
 | `POST /api/tables/{id}/actions/{aid}/dispute` | Dispute optimistic action |
-| `POST /api/tables/{id}/dispute/resolve` | Resolve active dispute |
-| `PATCH /api/tables/{id}/seats/{sid}/ack_posture` | Update AUTO_ACK posture |
+| `POST /api/tables/{id}/dispute/resolve` | Resolve dispute |
+| `PATCH /api/tables/{id}/seats/{sid}/ack_posture` | Update AUTO_ACK |
 
 ### WebSocket
 
-`WS /ws/{table_id}?token={jwt}` — per-seat event stream. Supports action submission, ACK/NACK, dispute, chat, and ACK posture updates as inbound messages.
+`WS /ws/{table_id}?token={jwt}`
 
-### Research (host only, research tables)
+Supports:
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET .../research/config` | Research session configuration |
-| `GET .../research/events` | Export events (JSON, filterable) |
-| `GET .../research/events/export` | Full NDJSON export |
-| `GET .../research/identities` | Export identity records |
-| `GET .../research/snapshots` | Export research snapshots |
-| `DELETE .../research/session` | Delete all session research data |
-| `DELETE .../research/identities/{hash}` | Purge identity data |
+- Action intents
+- ACK/NACK
+- Dispute
+- Chat
+- ACK posture updates
 
-### Consent (seated players, research tables)
+### 📦 Research Endpoints (host only, `research_mode`)
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET .../consent/requirements` | Required/optional consent tiers |
-| `POST .../consent` | Submit consent |
-| `GET .../consent` | Get own consent status |
-| `DELETE .../consent` | Revoke consent |
+| `GET …/research/config` | Session config |
+| `GET …/research/events` | Filtered event export |
+| `GET …/research/events/export` | NDJSON event export |
+| `GET …/research/identities` | Identity pseudonyms |
+| `DELETE …/research/session` | Delete research log |
+| `DELETE …/research/identities/{hash}` | Purge identity data |
 
-## Stack
+---
 
-- **Runtime**: Python 3.11+
-- **Framework**: FastAPI + Pydantic v2
-- **Server**: uvicorn
-- **Auth**: JWT (python-jose + bcrypt)
-- **WebSocket**: websockets
-- **Tests**: pytest + pytest-asyncio + httpx
-- **Package manager**: uv
+## 🧠 Key Design Decisions
 
-## Target Games (v0.1 validation)
+- **Event-sourced state:** The event log is the source of truth.
+- **Snapshot + rollback:** Enables optimistic actions and replay.
+- **AUTO_ACK promotion:** Faster flow backstopped by objection windows.
+- **Rate limits:** Prevent grief without interfering with play.
+- **Ephemeral sessions:** Simple infra for v0.1.
 
-- 4-player Euchre (standard 24-card deck)
+---
+
+## 🃏 Target Games (v0.1)
+
+- 4-player Euchre (24-card deck)
 - 4-player Double Pinochle (80-card deck)
 
-No rules for either game are encoded. Success means players can complete a full game using only the consensus mediation primitives.
+No rules for either game are encoded.
+Success means players can complete a game using only consensus primitives.
+
+---
+
+## 📌 Stack
+
+- **Language:** Python 3.11+
+- **Framework:** FastAPI + Pydantic
+- **Server:** uvicorn
+- **Auth:** JWT
+- **WebSocket:** Standard WebSockets
+- **Tests:** pytest + pytest-asyncio
+
+---
+
+## 📫 Contributing
+
+Contributions gratefully accepted.
+Please open issues or pull requests targeting:
+
+- feature enhancements
+- API improvements
+- research tooling
+- documentation clarity
