@@ -6,6 +6,8 @@
 
 **Tavoliere** is a *rule-agnostic*, **consensus-based virtual card table**, designed as a proof-of-concept for mediated coordination between peers — human and AI — under ambiguous norms.
 
+Tavoliere is not a game engine. It is a consensus mediation substrate disguised as a card table.
+
 Unlike most digital card platforms, Tavoliere does **not encode game rules**.
 Players **propose actions**, **acknowledge or dispute**, and **negotiate resolution through chat**.
 This makes it not just a gameplay surface, but **an instrument for studying social coordination and norm formation** — the core questions behind the **SPQ-AN evaluation framework**.
