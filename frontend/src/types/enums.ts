@@ -89,6 +89,7 @@ export enum EventType {
   TABLE_CREATED = "table_created",
   ZONE_CREATED = "zone_created",
   ACK_POSTURE_CHANGED = "ack_posture_changed",
+  TABLE_DESTROYED = "table_destroyed",
 }
 
 export enum DisputeReason {

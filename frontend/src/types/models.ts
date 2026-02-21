@@ -127,6 +127,7 @@ export interface ChatMessage {
   seat_id: string;
   identity_id: string;
   text: string;
+  channel?: string;
   thread_id?: string;
   timestamp: string;
 }
@@ -183,4 +184,148 @@ export interface TableSummary {
   max_seats: number;
   research_mode: boolean;
   created_at: string;
+}
+
+export interface TableMeta {
+  table_id: string;
+  display_name: string;
+  deck_recipe: string;
+  seats: { seat_id: string; display_name: string; identity_id: string | null; player_kind: string }[];
+  research_mode: boolean;
+  research_mode_version: string;
+  created_at: string;
+  destroyed_at: string;
+  event_count: number;
+}
+
+export interface CredentialPublic {
+  credential_id: string;
+  client_id: string;
+  display_name: string;
+  player_kind: PlayerKind;
+  created_at: string;
+}
+
+export interface ProfileInfo {
+  identity_id: string;
+  display_name: string;
+  is_admin: boolean;
+  created_at: string;
+  credential_count: number;
+}
+
+export interface ConventionTemplate {
+  template_id: string;
+  name: string;
+  deck_recipe: string;
+  seat_count: number;
+  suggested_phases: string[];
+  suggested_settings: Record<string, unknown>;
+  notes: Record<string, string>;
+  built_in: boolean;
+  created_at: string;
+}
+
+export interface ResearchHealth {
+  active_tables: number;
+  active_research_tables: number;
+  persisted_sessions: number;
+  total_persisted_events: number;
+}
+
+export interface PrincipalInfo {
+  identity_id: string;
+  display_name: string;
+  is_admin: boolean;
+  created_at: string;
+  credential_count: number;
+}
+
+export interface GameSummary {
+  table_id: string;
+  display_name: string;
+  deck_recipe: string;
+  seats: { seat_id: string; display_name: string; identity_id: string | null }[];
+  research_mode: boolean;
+  created_at: string;
+  destroyed_at?: string;
+  duration_s: number;
+  total_events: number;
+  total_actions: number;
+  total_disputes: number;
+  total_undos: number;
+  spqan?: SessionSPQAN;
+}
+
+// ---------------------------------------------------------------------------
+// SPQ-AN metric types
+// ---------------------------------------------------------------------------
+
+export interface CEMetrics {
+  mean_ack_latency_ms: number | null;
+  dispute_density: number;
+  rollback_rate: number;
+}
+
+export interface RCMetrics {
+  mean_resolution_latency_ms: number | null;
+  mean_chat_per_dispute: number;
+  resolution_distribution: Record<string, number>;
+}
+
+export interface NSMetrics {
+  auto_ack_adoption_rate: number;
+  auto_ack_churn: number;
+  phase_label_diversity: number;
+}
+
+export interface CAMetrics {
+  mean_message_length_chars: number;
+  resolution_related_chat_ratio: number;
+  messages_per_dispute: number;
+}
+
+export interface SSCMetrics {
+  dispute_initiation_rate: number;
+  dispute_involvement_rate: number;
+  dispute_clustering_score: number;
+}
+
+export interface SeatSPQAN {
+  seat_id: string;
+  pseudonym_id: string;
+  seat_type: string;
+  ce: CEMetrics;
+  rc: RCMetrics;
+  ns: NSMetrics;
+  ca: CAMetrics;
+  ssc: SSCMetrics;
+}
+
+export interface SessionSPQAN {
+  session_id: string;
+  table_id: string;
+  seats: SeatSPQAN[];
+  event_count: number;
+  duration_ms: number;
+}
+
+export interface ResearchSession extends TableMeta {
+  has_research_data: boolean;
+}
+
+export interface ResearchEvent {
+  event_id: string;
+  table_id: string;
+  session_id: string;
+  event_type: string;
+  timestamp_utc_ms: number;
+  server_sequence_number: number;
+  phase_label: string;
+  previous_event_id: string | null;
+  gameplay_seq: number;
+  seat_snapshot?: Record<string, unknown>;
+  action_enrichment?: Record<string, unknown>;
+  chat_enrichment?: Record<string, unknown>;
+  rng_provenance?: Record<string, unknown>;
 }

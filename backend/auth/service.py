@@ -23,10 +23,12 @@ _credentials_by_client_id: dict[str, Credential] = {}
 
 
 def create_principal(display_name: str) -> Principal:
+    is_first = len(_principals) == 0
     principal = Principal(
         identity_id=str(uuid.uuid4()),
         display_name=display_name,
         created_at=datetime.now(timezone.utc),
+        is_admin=is_first,
     )
     _principals[principal.identity_id] = principal
     return principal
@@ -127,3 +129,52 @@ def verify_token(token: str) -> TokenPayload | None:
         )
     except JWTError:
         return None
+
+
+def update_principal_name(identity_id: str, new_name: str) -> Principal | None:
+    principal = _principals.get(identity_id)
+    if not principal:
+        return None
+    principal.display_name = new_name
+    return principal
+
+
+def delete_principal(identity_id: str) -> bool:
+    principal = _principals.get(identity_id)
+    if not principal:
+        return False
+    # Revoke all credentials belonging to this principal
+    cred_ids = [c.credential_id for c in _credentials.values() if c.identity_id == identity_id]
+    for cid in cred_ids:
+        cred = _credentials.pop(cid, None)
+        if cred:
+            _credentials_by_client_id.pop(cred.client_id, None)
+    _principals.pop(identity_id, None)
+    return True
+
+
+def list_all_principals() -> list[Principal]:
+    return list(_principals.values())
+
+
+def list_all_credentials() -> list[CredentialPublic]:
+    return [
+        CredentialPublic(
+            credential_id=c.credential_id,
+            client_id=c.client_id,
+            display_name=c.display_name,
+            player_kind=c.player_kind,
+            created_at=c.created_at,
+        )
+        for c in _credentials.values()
+    ]
+
+
+def force_revoke_credential(credential_id: str) -> bool:
+    """Revoke a credential regardless of ownership (admin use)."""
+    cred = _credentials.get(credential_id)
+    if not cred:
+        return False
+    _credentials_by_client_id.pop(cred.client_id, None)
+    _credentials.pop(credential_id, None)
+    return True

@@ -10,6 +10,7 @@ interface UseTableSocketOptions {
   identityId: string;
   dispatch: React.Dispatch<TableAction>;
   onNeedsResync?: () => void;
+  mode?: "player" | "spectate";
 }
 
 export function useTableSocket({
@@ -18,6 +19,7 @@ export function useTableSocket({
   dispatch,
   identityId,
   onNeedsResync,
+  mode = "player",
 }: UseTableSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,7 +41,10 @@ export function useTableSocket({
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    const url = `${protocol}//${host}/ws/${tableId}?token=${token}`;
+    let url = `${protocol}//${host}/ws/${tableId}?token=${token}`;
+    if (mode === "spectate") {
+      url += "&mode=spectate";
+    }
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -59,10 +64,10 @@ export function useTableSocket({
 
       switch (msg.msg_type) {
         case "state_sync": {
-          // Find my seat by matching identity_id
-          const mySeat = msg.state.seats.find(
-            (s) => s.identity_id === identityId,
-          );
+          const mySeat =
+            mode === "spectate"
+              ? null
+              : msg.state.seats.find((s) => s.identity_id === identityId);
           dispatch({
             type: "STATE_SYNC",
             state: msg.state,
@@ -95,7 +100,7 @@ export function useTableSocket({
     ws.onerror = () => {
       setLastError("WebSocket connection error");
     };
-  }, [tableId, token, identityId, dispatch, send]);
+  }, [tableId, token, identityId, dispatch, send, mode]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -124,46 +129,60 @@ export function useTableSocket({
   }, [onNeedsResync]);
 
   const sendAction = useCallback(
-    (intent: ActionIntent) => send({ msg_type: "action", intent }),
-    [send],
+    (intent: ActionIntent) => {
+      if (mode === "spectate") return;
+      send({ msg_type: "action", intent });
+    },
+    [send, mode],
   );
 
   const sendAck = useCallback(
-    (actionId: string) => send({ msg_type: "ack", action_id: actionId }),
-    [send],
+    (actionId: string) => {
+      if (mode === "spectate") return;
+      send({ msg_type: "ack", action_id: actionId });
+    },
+    [send, mode],
   );
 
   const sendNack = useCallback(
-    (actionId: string, reason?: DisputeReason, reasonText?: string) =>
+    (actionId: string, reason?: DisputeReason, reasonText?: string) => {
+      if (mode === "spectate") return;
       send({
         msg_type: "nack",
         action_id: actionId,
         reason,
         reason_text: reasonText,
-      }),
-    [send],
+      });
+    },
+    [send, mode],
   );
 
   const sendDispute = useCallback(
-    (actionId: string, reason?: DisputeReason, reasonText?: string) =>
+    (actionId: string, reason?: DisputeReason, reasonText?: string) => {
+      if (mode === "spectate") return;
       send({
         msg_type: "dispute",
         action_id: actionId,
         reason,
         reason_text: reasonText,
-      }),
-    [send],
+      });
+    },
+    [send, mode],
   );
 
   const sendChat = useCallback(
-    (text: string) => send({ msg_type: "chat", text }),
+    (text: string, channel?: string) => {
+      send({ msg_type: "chat", text, channel });
+    },
     [send],
   );
 
   const sendAckPosture = useCallback(
-    (ackPosture: AckPosture) =>
-      send({ msg_type: "set_ack_posture", ack_posture: ackPosture }),
-    [send],
+    (ackPosture: AckPosture) => {
+      if (mode === "spectate") return;
+      send({ msg_type: "set_ack_posture", ack_posture: ackPosture });
+    },
+    [send, mode],
   );
 
   return {
@@ -175,5 +194,6 @@ export function useTableSocket({
     sendDispute,
     sendChat,
     sendAckPosture,
+    mode,
   };
 }

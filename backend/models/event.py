@@ -23,6 +23,7 @@ class EventType(str, Enum):
     TABLE_CREATED = "table_created"
     ZONE_CREATED = "zone_created"
     ACK_POSTURE_CHANGED = "ack_posture_changed"
+    TABLE_DESTROYED = "table_destroyed"
 
 
 class Event(BaseModel):

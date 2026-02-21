@@ -21,7 +21,7 @@ export type WSInbound =
       reason?: DisputeReason;
       reason_text?: string;
     }
-  | { msg_type: "chat"; text: string }
+  | { msg_type: "chat"; text: string; channel?: string }
   | { msg_type: "set_ack_posture"; ack_posture: AckPosture }
   | { msg_type: "ping" };
 

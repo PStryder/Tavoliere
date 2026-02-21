@@ -16,6 +16,7 @@ class WSInbound(BaseModel):
     reason: DisputeReason | None = None
     reason_text: str | None = None
     text: str | None = None
+    channel: str | None = None
     ack_posture: AckPosture | None = None
 
 

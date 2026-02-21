@@ -30,13 +30,17 @@ router = APIRouter()
 # Connection registry: table_id -> {seat_id -> WebSocket}
 _connections: dict[str, dict[str, WebSocket]] = defaultdict(dict)
 
+# Observer registry: table_id -> {identity_id -> WebSocket}
+_observers: dict[str, dict[str, WebSocket]] = defaultdict(dict)
+
 
 def get_connections(table_id: str) -> dict[str, WebSocket]:
     return _connections[table_id]
 
 
-async def broadcast_event(table_id: str, event_data: dict, table=None) -> None:
-    """Broadcast an event to all connected seats, with visibility filtering."""
+async def broadcast_event(table_id: str, event_data: dict, table=None, channel: str | None = None) -> None:
+    """Broadcast an event to all connected seats and observers."""
+    # Send to players
     conns = _connections.get(table_id, {})
     for seat_id, ws in list(conns.items()):
         msg = WSOutbound(msg_type="event", event=event_data)
@@ -45,13 +49,35 @@ async def broadcast_event(table_id: str, event_data: dict, table=None) -> None:
         except Exception:
             conns.pop(seat_id, None)
 
+    # Send to observers (skip spectator-only chat for players, game chat goes to observers read-only)
+    if channel != "spectator":
+        observers = _observers.get(table_id, {})
+        for obs_id, ws in list(observers.items()):
+            msg = WSOutbound(msg_type="event", event=event_data)
+            try:
+                await ws.send_text(msg.model_dump_json())
+            except Exception:
+                observers.pop(obs_id, None)
 
-async def send_state_sync(ws: WebSocket, table_id: str, seat_id: str) -> None:
-    """Send full visibility-filtered state to a seat."""
+
+async def _broadcast_to_observers(table_id: str, event_data: dict) -> None:
+    """Broadcast an event only to observers (for spectator chat)."""
+    observers = _observers.get(table_id, {})
+    for obs_id, ws in list(observers.items()):
+        msg = WSOutbound(msg_type="event", event=event_data)
+        try:
+            await ws.send_text(msg.model_dump_json())
+        except Exception:
+            observers.pop(obs_id, None)
+
+
+async def send_state_sync(ws: WebSocket, table_id: str, seat_id: str, observer: bool = False) -> None:
+    """Send full visibility-filtered state to a seat or observer."""
     table = get_table(table_id)
     if not table:
         return
-    state = filter_table_for_seat(table, seat_id)
+    filter_id = "__observer__" if observer else seat_id
+    state = filter_table_for_seat(table, filter_id)
     msg = WSOutbound(msg_type="state_sync", state=state)
     await ws.send_text(msg.model_dump_json())
 
@@ -62,8 +88,8 @@ async def send_error(ws: WebSocket, error: str, error_code: str = "ERROR") -> No
 
 
 @router.websocket("/ws/{table_id}")
-async def websocket_endpoint(websocket: WebSocket, table_id: str, token: str = ""):
-    """Per-seat WebSocket connection for event streaming."""
+async def websocket_endpoint(websocket: WebSocket, table_id: str, token: str = "", mode: str = "player"):
+    """Per-seat or spectator WebSocket connection for event streaming."""
     # Authenticate
     token_data = verify_token(token)
     if not token_data:
@@ -75,11 +101,20 @@ async def websocket_endpoint(websocket: WebSocket, table_id: str, token: str = "
         await websocket.close(code=4004, reason="Table not found")
         return
 
-    seat = get_seat_for_identity(table, token_data.effective_identity)
-    if not seat:
-        await websocket.close(code=4003, reason="Not seated at this table")
-        return
+    identity_id = token_data.effective_identity
 
+    if mode == "spectate":
+        await _handle_spectator(websocket, table_id, identity_id)
+    else:
+        seat = get_seat_for_identity(table, identity_id)
+        if not seat:
+            await websocket.close(code=4003, reason="Not seated at this table")
+            return
+        await _handle_player(websocket, table_id, seat)
+
+
+async def _handle_player(websocket: WebSocket, table_id: str, seat) -> None:
+    """Handle a player WebSocket connection."""
     await websocket.accept()
 
     # Register connection
@@ -87,6 +122,7 @@ async def websocket_endpoint(websocket: WebSocket, table_id: str, token: str = "
 
     # Update presence
     seat.presence = Presence.ACTIVE
+    table = get_table(table_id)
     table_state = get_or_create_state(table)
     event = table_state.append_event(
         event_type=EventType.PRESENCE_CHANGED,
@@ -119,6 +155,65 @@ async def websocket_endpoint(websocket: WebSocket, table_id: str, token: str = "
             data={"presence": "disconnected"},
         )
         await broadcast_event(table_id, event.model_dump(mode="json"))
+
+
+async def _handle_spectator(websocket: WebSocket, table_id: str, identity_id: str) -> None:
+    """Handle a spectator WebSocket connection."""
+    await websocket.accept()
+
+    # Register in observer registry
+    _observers[table_id][identity_id] = websocket
+
+    # Send initial state sync (observer view)
+    await send_state_sync(websocket, table_id, identity_id, observer=True)
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = WSInbound.model_validate_json(raw)
+                await _handle_spectator_inbound(msg, table_id, identity_id, websocket)
+            except Exception as e:
+                await send_error(websocket, str(e), "INVALID_MESSAGE")
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _observers.get(table_id, {}).pop(identity_id, None)
+
+
+async def _handle_spectator_inbound(
+    msg: WSInbound, table_id: str, identity_id: str, ws: WebSocket
+) -> None:
+    """Handle inbound messages from spectators (only ping and spectator chat allowed)."""
+    if msg.msg_type == "ping":
+        pong = WSOutbound(msg_type="pong")
+        await ws.send_text(pong.model_dump_json())
+
+    elif msg.msg_type == "chat":
+        if not msg.text:
+            await send_error(ws, "Missing text", "MISSING_TEXT")
+            return
+        table = get_table(table_id)
+        if not table:
+            await send_error(ws, "Table not found")
+            return
+        table_state = get_or_create_state(table)
+        chat_msg = ChatMessage(
+            message_id=str(uuid.uuid4()),
+            seat_id="__spectator__",
+            identity_id=identity_id,
+            text=msg.text,
+            channel="spectator",
+            timestamp=datetime.now(timezone.utc),
+        )
+        event = table_state.append_event(
+            event_type=EventType.CHAT_MESSAGE,
+            data=chat_msg.model_dump(mode="json"),
+        )
+        # Spectator chat only goes to observers
+        await _broadcast_to_observers(table_id, event.model_dump(mode="json"))
+    else:
+        await send_error(ws, "Spectators can only send ping and chat", "SPECTATOR_RESTRICTED")
 
 
 async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSocket) -> None:
@@ -200,11 +295,13 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
         if not msg.text:
             await send_error(ws, "Missing text", "MISSING_TEXT")
             return
+        # Players always chat on "game" channel
         chat_msg = ChatMessage(
             message_id=str(uuid.uuid4()),
             seat_id=seat_id,
             identity_id=seat.identity_id or "",
             text=msg.text,
+            channel="game",
             timestamp=datetime.now(timezone.utc),
         )
         event = table_state.append_event(
@@ -212,6 +309,7 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
             seat_id=seat_id,
             data=chat_msg.model_dump(mode="json"),
         )
+        # Game chat goes to players + observers
         await broadcast_event(table_id, event.model_dump(mode="json"))
 
     elif msg.msg_type == "set_ack_posture":

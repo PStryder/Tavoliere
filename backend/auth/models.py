@@ -9,6 +9,7 @@ class Principal(BaseModel):
     identity_id: str
     display_name: str
     created_at: datetime
+    is_admin: bool = False
 
 
 class Credential(BaseModel):

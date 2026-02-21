@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.auth.deps import get_current_identity
 from backend.auth.models import TokenPayload
+from backend.engine.state import get_or_create_state
 from backend.engine.table_manager import (
     create_table,
     delete_table,
@@ -13,6 +14,7 @@ from backend.engine.table_manager import (
     list_tables,
 )
 from backend.engine.visibility import filter_table_for_seat
+from backend.api.ws import broadcast_event
 from backend.models.consent import AIParticipationMetadata
 from backend.models.seat import Seat
 from backend.models.table import Table, TableCreate, TableSettings
@@ -47,6 +49,7 @@ async def get_tables(
             "deck_recipe": t.deck_recipe.value,
             "seat_count": len(t.seats),
             "max_seats": t.settings.max_seats,
+            "research_mode": t.research_mode,
             "created_at": t.created_at.isoformat(),
         }
         for t in tables
@@ -81,6 +84,18 @@ async def destroy_table(
     seat = get_seat_for_identity(table, identity.effective_identity)
     if not seat or seat.seat_id != table.host_seat_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only host can destroy table")
+
+    # Fire TABLE_DESTROYED event and broadcast to all connected clients before deletion
+    from backend.models.event import EventType
+
+    table_state = get_or_create_state(table)
+    event = table_state.append_event(
+        event_type=EventType.TABLE_DESTROYED,
+        seat_id=seat.seat_id,
+        data={"reason": "host_destroyed"},
+    )
+    await broadcast_event(table_id, event.model_dump(mode="json"))
+
     delete_table(table_id)
 
 

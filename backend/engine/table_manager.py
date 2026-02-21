@@ -89,7 +89,39 @@ def list_tables() -> list[Table]:
 
 
 def delete_table(table_id: str) -> bool:
-    return _tables.pop(table_id, None) is not None
+    table = _tables.get(table_id)
+    if not table:
+        return False
+
+    # Persist event log before removing (TABLE_DESTROYED should already be in the log
+    # if the caller appended it before calling delete_table)
+    from backend.engine.persistence import persist_table
+    from backend.engine.state import get_state, remove_state
+    from backend.models.event import EventType
+
+    state = get_state(table_id)
+    if state:
+        # Only append TABLE_DESTROYED if not already present (idempotent)
+        has_destroyed = any(
+            e.event_type == EventType.TABLE_DESTROYED for e in state.event_log
+        )
+        if not has_destroyed:
+            state.append_event(
+                event_type=EventType.TABLE_DESTROYED,
+                data={"reason": "host_destroyed"},
+            )
+        persist_table(table, state.event_log)
+
+        # Persist research data if observer is attached
+        if state._research_observer:
+            from backend.engine.persistence import persist_research_data
+
+            persist_research_data(table_id, state._research_observer)
+
+        remove_state(table_id)
+
+    _tables.pop(table_id, None)
+    return True
 
 
 def join_table(

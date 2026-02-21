@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import type { TableSummary } from "../../types/models";
 
 interface Props {
@@ -6,6 +7,7 @@ interface Props {
 }
 
 export function TableList({ tables, onJoin }: Props) {
+  const navigate = useNavigate();
   if (tables.length === 0) {
     return (
       <p className="text-gray-500 text-center py-8">
@@ -46,14 +48,22 @@ export function TableList({ tables, onJoin }: Props) {
                   </span>
                 )}
               </td>
-              <td className="py-2 px-3 text-right">
-                <button
-                  onClick={() => onJoin(t.table_id)}
-                  disabled={t.seat_count >= t.max_seats}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-xs font-medium"
-                >
-                  Join
-                </button>
+              <td className="py-2 px-3 text-right flex gap-1 justify-end">
+                {t.seat_count >= t.max_seats ? (
+                  <button
+                    onClick={() => navigate(`/spectate/${t.table_id}`)}
+                    className="px-3 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs font-medium"
+                  >
+                    Spectate
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onJoin(t.table_id)}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium"
+                  >
+                    Join
+                  </button>
+                )}
               </td>
             </tr>
           ))}

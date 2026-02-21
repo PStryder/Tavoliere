@@ -15,6 +15,7 @@ export interface TableContextState {
   pendingActions: PendingAction[];
   chatMessages: ChatMessage[];
   needsResync: boolean;
+  tableDestroyed: boolean;
 }
 
 export type TableAction =
@@ -29,6 +30,7 @@ export const initialTableState: TableContextState = {
   pendingActions: [],
   chatMessages: [],
   needsResync: false,
+  tableDestroyed: false,
 };
 
 export function tableReducer(
@@ -161,13 +163,16 @@ function handleEvent(
       const data = event.data as {
         message_id: string;
         text: string;
+        channel?: string;
         thread_id?: string;
+        identity_id?: string;
       };
       const msg: ChatMessage = {
         message_id: data.message_id ?? crypto.randomUUID(),
-        seat_id: event.seat_id ?? "",
-        identity_id: "",
+        seat_id: event.seat_id ?? data.identity_id ?? "",
+        identity_id: data.identity_id ?? "",
         text: data.text ?? "",
+        channel: data.channel,
         thread_id: data.thread_id,
         timestamp: event.timestamp,
       };
@@ -261,6 +266,9 @@ function handleEvent(
         },
       };
     }
+
+    case EventType.TABLE_DESTROYED:
+      return { ...state, tableDestroyed: true };
 
     default:
       return state;

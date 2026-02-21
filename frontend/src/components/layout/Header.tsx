@@ -11,6 +11,24 @@ export function Header() {
       </Link>
       {isAuthenticated && identity && (
         <div className="flex items-center gap-4">
+          <Link to="/lobby" className="text-sm text-gray-400 hover:text-white">
+            Lobby
+          </Link>
+          <Link to="/games" className="text-sm text-gray-400 hover:text-white">
+            My Games
+          </Link>
+          <Link to="/api-keys" className="text-sm text-gray-400 hover:text-white">
+            API Keys
+          </Link>
+          <Link to="/profile" className="text-sm text-gray-400 hover:text-white">
+            Profile
+          </Link>
+          <Link to="/admin" className="text-sm text-gray-400 hover:text-white">
+            Admin
+          </Link>
+          <Link to="/research/explorer" className="text-sm text-gray-400 hover:text-white">
+            Research
+          </Link>
           <span className="text-gray-300 text-sm">{identity.display_name}</span>
           <button
             onClick={logout}
