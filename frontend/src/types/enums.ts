@@ -46,6 +46,12 @@ export enum ZoneKind {
   SCRATCHPAD = "scratchpad",
 }
 
+export enum ZoneOrdering {
+  STACKED = "stacked",
+  ORDERED = "ordered",
+  UNORDERED = "unordered",
+}
+
 export enum Presence {
   ACTIVE = "active",
   DISCONNECTED = "disconnected",

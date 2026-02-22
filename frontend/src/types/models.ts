@@ -4,6 +4,7 @@ import type {
   DeckRecipe,
   ZoneKind,
   ZoneVisibility,
+  ZoneOrdering,
   Presence,
   PlayerKind,
   ActionType,
@@ -31,7 +32,7 @@ export interface Zone {
   card_ids: string[];
   label: string;
   capacity?: number | null;
-  ordering?: string;
+  ordering?: ZoneOrdering;
   seat_visibility?: string[];
   metadata?: Record<string, unknown>;
 }

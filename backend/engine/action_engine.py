@@ -1,3 +1,4 @@
+import hashlib
 import random
 import secrets
 import uuid
@@ -119,8 +120,7 @@ def _apply_shuffle(intent: ActionIntent, seat: Seat, table: Table) -> dict:
     )
 
     return {
-        "shuffle_seed": seed,
-        "deck_order_after": list(deck.card_ids),
+        "shuffle_seed_hash": hashlib.sha256(seed.encode()).hexdigest(),
     }
 
 

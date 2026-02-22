@@ -283,13 +283,12 @@ class ResearchObserver:
         # RNG provenance for shuffle actions
         rng_prov = None
         if action_type == "shuffle":
-            shuffle_seed = event.data.get("shuffle_seed")
-            deck_order_after = event.data.get("deck_order_after")
-            if deck_order_after is None:
-                deck_zone = next(
-                    (z for z in table.zones if z.zone_id == "deck"), None
-                )
-                deck_order_after = list(deck_zone.card_ids) if deck_zone else []
+            # Read seed from table.shuffle_state (set before event emission)
+            shuffle_seed = table.shuffle_state.seed if table.shuffle_state else None
+            deck_zone = next(
+                (z for z in table.zones if z.zone_id == "deck"), None
+            )
+            deck_order_after = list(deck_zone.card_ids) if deck_zone else []
             seed_hash = None
             if shuffle_seed:
                 seed_hash = hashlib.sha256(shuffle_seed.encode()).hexdigest()

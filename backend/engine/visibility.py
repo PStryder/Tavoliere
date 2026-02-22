@@ -1,4 +1,5 @@
 from backend.models.card import Card
+from backend.models.scratchpad import ScratchpadVisibility
 from backend.models.table import Table
 from backend.models.zone import Zone, ZoneVisibility
 
@@ -43,7 +44,7 @@ def filter_table_for_seat(table: Table, seat_id: str) -> dict:
     # Filter scratchpads — private pads only shown to owner, public to all
     filtered_scratchpads = {}
     for sp_id, sp in table.scratchpads.items():
-        if sp.visibility.value == "public" or sp.owner_seat_id == seat_id:
+        if sp.visibility == ScratchpadVisibility.PUBLIC or sp.owner_seat_id == seat_id:
             filtered_scratchpads[sp_id] = sp.model_dump()
 
     result = {
@@ -61,13 +62,13 @@ def filter_table_for_seat(table: Table, seat_id: str) -> dict:
         "created_at": table.created_at.isoformat(),
     }
 
-    if table.scratchpads:
+    if filtered_scratchpads:
         result["scratchpads"] = filtered_scratchpads
 
-    if table.shuffle_state:
+    if table.shuffle_state.seed is not None:
         result["shuffle_state"] = table.shuffle_state.model_dump()
 
-    if table.turn_state:
+    if table.turn_state.active_seat_id is not None or table.turn_state.phase_label:
         result["turn_state"] = table.turn_state.model_dump()
 
     return result

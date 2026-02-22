@@ -63,8 +63,6 @@ class Table(BaseModel):
     turn_state: TurnState = Field(default_factory=TurnState)
     scratchpads: dict[str, "Scratchpad"] = Field(default_factory=dict)
 
-    model_config = {"arbitrary_types_allowed": True}
-
 
 # Deferred import to avoid circular dependency
 from backend.models.scratchpad import Scratchpad  # noqa: E402

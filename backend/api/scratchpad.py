@@ -1,12 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth.deps import get_current_identity
+from backend.engine.action_engine import get_rate_limiter
+from backend.engine.rate_limiter import RateLimitError
 from backend.engine.scratchpad import apply_scratchpad_edit
 from backend.engine.state import get_state
 from backend.engine.table_manager import get_seat_for_identity, get_table
 from backend.models.scratchpad import ScratchpadEdit, ScratchpadVisibility
 
 router = APIRouter(prefix="/api/tables/{table_id}/scratchpads", tags=["scratchpads"])
+
+# Scratchpad rate limit: 10 edits per 5 seconds per seat
+_SP_RATE_MAX = 10
+_SP_RATE_WINDOW_S = 5.0
 
 
 def _resolve_seat(table_id: str, identity_id: str):
@@ -61,6 +67,12 @@ async def edit_scratchpad(
     state = get_state(table_id)
     if not state:
         raise HTTPException(status_code=404, detail="Table state not found")
+
+    # Rate limit scratchpad edits
+    try:
+        get_rate_limiter().check(seat.seat_id, "scratchpad_edit", _SP_RATE_MAX, _SP_RATE_WINDOW_S)
+    except RateLimitError:
+        raise HTTPException(status_code=429, detail="Scratchpad edit rate limit exceeded")
 
     # Override scratchpad_id from path
     body.scratchpad_id = scratchpad_id

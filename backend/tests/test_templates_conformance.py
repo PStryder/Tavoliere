@@ -14,8 +14,10 @@ from backend.engine.deck import create_deck
 from backend.engine.scratchpad import apply_scratchpad_edit
 from backend.engine.state import TableState
 from backend.engine.table_manager import create_table, join_table
-from backend.engine.action_engine import execute_unilateral, _apply_shuffle
+from backend.engine.action_engine import execute_unilateral
 from backend.engine.optimistic import execute_optimistic
+from backend.engine.scratchpad import MAX_SCRATCHPAD_CONTENT
+from backend.engine.table_manager import leave_table
 from backend.models.action import ActionIntent, ActionType
 from backend.models.card import Card, DeckRecipe
 from backend.models.event import EventType
@@ -207,7 +209,7 @@ class TestShuffleDeterminism:
 
         assert a == b
 
-    def test_shuffle_stores_seed_in_event(self):
+    def test_shuffle_stores_seed_hash_in_event(self):
         table = _create_test_table()
         seat = _join(table, "Player", 0)
         state = _make_state(table)
@@ -220,10 +222,13 @@ class TestShuffleDeterminism:
         committed = [e for e in state.event_log if e.event_type == EventType.ACTION_COMMITTED]
         assert len(committed) >= 1
         event = committed[-1]
-        assert "shuffle_seed" in event.data
-        assert "deck_order_after" in event.data
-        assert isinstance(event.data["shuffle_seed"], str)
-        assert len(event.data["shuffle_seed"]) == 32  # hex(16 bytes)
+        # Only the hash is in event data, not the raw seed or full deck order
+        assert "shuffle_seed_hash" in event.data
+        assert "shuffle_seed" not in event.data
+        assert "deck_order_after" not in event.data
+        # Verify hash matches the seed on shuffle_state
+        expected_hash = hashlib.sha256(table.shuffle_state.seed.encode()).hexdigest()
+        assert event.data["shuffle_seed_hash"] == expected_hash
 
     def test_shuffle_state_populated(self):
         table = _create_test_table()
@@ -538,3 +543,115 @@ class TestTableModelIntegration:
         assert restored.turn_state.phase_label == "bidding"
         assert restored.turn_state.active_seat_id == seat.seat_id
         assert "public_scratchpad" in restored.scratchpads
+
+
+# ===================================================================
+# 8. Review Fixes
+# ===================================================================
+
+class TestReviewFixes:
+    def test_optimistic_shuffle_has_determinism(self):
+        """Fix #3: Optimistic shuffle must also use seeded RNG."""
+        table = _create_test_table()
+        table.settings.shuffle_is_optimistic = True
+        seat = _join(table, "Player", 0)
+        _join(table, "Player2", 1)
+        state = _make_state(table)
+
+        intent = ActionIntent(action_type=ActionType.SHUFFLE)
+        result = execute_optimistic(intent, seat, state)
+        assert result.status == "committed"
+
+        # shuffle_state must be populated
+        assert table.shuffle_state.seed is not None
+        assert len(table.shuffle_state.seed) == 32
+        assert table.shuffle_state.shuffled_by == seat.seat_id
+
+        # Event must have seed hash
+        committed = [e for e in state.event_log if e.event_type == EventType.ACTION_COMMITTED]
+        assert "shuffle_seed_hash" in committed[-1].data
+
+    def test_leave_table_cleans_up_scratchpad(self):
+        """Fix #4: Private scratchpad removed when seat leaves."""
+        table = _create_test_table()
+        seat = _join(table, "A", 0)
+        _join(table, "B", 1)
+        sp_id = f"notes_{seat.seat_id}"
+        assert sp_id in table.scratchpads
+
+        leave_table(table.table_id, "id_0")
+        assert sp_id not in table.scratchpads
+        # Public scratchpad still present
+        assert "public_scratchpad" in table.scratchpads
+
+    def test_scratchpad_content_size_limit(self):
+        """Fix #5: Content exceeding MAX_SCRATCHPAD_CONTENT is rejected."""
+        table = _create_test_table()
+        seat = _join(table, "Player", 0)
+        state = _make_state(table)
+
+        oversized = "x" * (MAX_SCRATCHPAD_CONTENT + 1)
+        edit = ScratchpadEdit(
+            scratchpad_id="public_scratchpad",
+            action=ScratchpadAction.REPLACE,
+            content=oversized,
+        )
+        with pytest.raises(ValueError, match="maximum size"):
+            apply_scratchpad_edit(edit, seat.seat_id, state)
+
+    def test_scratchpad_append_respects_limit(self):
+        """Fix #5: Appending past the limit is rejected."""
+        table = _create_test_table()
+        seat = _join(table, "Player", 0)
+        state = _make_state(table)
+
+        # Fill to near-limit
+        table.scratchpads["public_scratchpad"].content = "x" * MAX_SCRATCHPAD_CONTENT
+        edit = ScratchpadEdit(
+            scratchpad_id="public_scratchpad",
+            action=ScratchpadAction.APPEND,
+            content="one more",
+        )
+        with pytest.raises(ValueError, match="maximum size"):
+            apply_scratchpad_edit(edit, seat.seat_id, state)
+
+    def test_visibility_excludes_empty_shuffle_state(self):
+        """Fix #1: Default empty ShuffleState not included in view."""
+        table = _create_test_table()
+        seat = _join(table, "Player", 0)
+        view = filter_table_for_seat(table, seat.seat_id)
+        assert "shuffle_state" not in view
+
+    def test_visibility_excludes_empty_turn_state(self):
+        """Fix #1: Default empty TurnState not included in view."""
+        table = _create_test_table()
+        seat = _join(table, "Player", 0)
+        view = filter_table_for_seat(table, seat.seat_id)
+        assert "turn_state" not in view
+
+    def test_visibility_includes_populated_shuffle_state(self):
+        """Fix #1: ShuffleState included when populated."""
+        table = _create_test_table()
+        seat = _join(table, "Player", 0)
+        state = _make_state(table)
+
+        intent = ActionIntent(action_type=ActionType.SHUFFLE)
+        execute_unilateral(intent, seat, state)
+
+        view = filter_table_for_seat(table, seat.seat_id)
+        assert "shuffle_state" in view
+        assert view["shuffle_state"]["seed"] is not None
+
+    def test_visibility_includes_populated_turn_state(self):
+        """Fix #1: TurnState included when it has meaningful data."""
+        table = _create_test_table()
+        seat = _join(table, "Player", 0)
+        _join(table, "Player2", 1)
+        state = _make_state(table)
+
+        intent = ActionIntent(action_type=ActionType.SET_PHASE, phase_label="bidding")
+        execute_optimistic(intent, seat, state)
+
+        view = filter_table_for_seat(table, seat.seat_id)
+        assert "turn_state" in view
+        assert view["turn_state"]["phase_label"] == "bidding"

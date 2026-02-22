@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 
+from backend.engine.action_engine import _apply_shuffle
 from backend.engine.consensus import _apply_consensus_mutation
 from backend.engine.state import TableState
 from backend.models.action import ActionClass, ActionIntent, ActionResult, ActionType, PendingAction
@@ -44,7 +45,7 @@ def execute_optimistic(
     snapshot_seq = table_state.take_snapshot()
 
     # Apply mutation immediately
-    _apply_optimistic_mutation(intent, seat, table)
+    extra_data = _apply_optimistic_mutation(intent, seat, table)
 
     # Set up objection window
     window_s = table.settings.objection_window_s
@@ -64,16 +65,19 @@ def execute_optimistic(
     optimistic = get_optimistic_actions(table.table_id)
     optimistic[action_id] = pa
 
+    event_data = {
+        "action_type": intent.action_type.value,
+        "action_class": ActionClass.OPTIMISTIC.value,
+        "intent": intent.model_dump(mode="json"),
+        "objection_deadline": deadline.isoformat(),
+    }
+    event_data.update(extra_data)
+
     table_state.append_event(
         event_type=EventType.ACTION_COMMITTED,
         seat_id=seat.seat_id,
         action_id=action_id,
-        data={
-            "action_type": intent.action_type.value,
-            "action_class": ActionClass.OPTIMISTIC.value,
-            "intent": intent.model_dump(mode="json"),
-            "objection_deadline": deadline.isoformat(),
-        },
+        data=event_data,
     )
 
     # Schedule finalization
@@ -136,17 +140,21 @@ def dispute_optimistic(
     return ActionResult(action_id=action_id, status="rolled_back")
 
 
-def _apply_optimistic_mutation(intent: ActionIntent, seat: Seat, table: Table) -> None:
-    """Apply an optimistic action mutation."""
+def _apply_optimistic_mutation(intent: ActionIntent, seat: Seat, table: Table) -> dict:
+    """Apply an optimistic action mutation. Returns extra event data."""
     if intent.action_type == ActionType.SET_PHASE:
         if table.settings.phase_locked:
             raise ValueError("Phase changes are locked")
         new_phase = intent.phase_label or ""
         table.phase = new_phase
         table.turn_state.phase_label = new_phase
+        return {}
+    elif intent.action_type == ActionType.SHUFFLE:
+        return _apply_shuffle(intent, seat, table)
     else:
         # Promoted consensus actions use the same mutation logic
         _apply_consensus_mutation(intent, seat.seat_id, table)
+        return {}
 
 
 def _schedule_finalization(

@@ -241,6 +241,10 @@ def leave_table(table_id: str, identity_id: str) -> bool:
     table.zones = [z for z in table.zones if z not in zones_to_remove]
     table.seats = [s for s in table.seats if s.seat_id != seat_id]
 
+    # Remove private scratchpad for this seat
+    sp_id = f"notes_{seat_id}"
+    table.scratchpads.pop(sp_id, None)
+
     # Reassign host if needed
     if table.host_seat_id == seat_id:
         table.host_seat_id = table.seats[0].seat_id if table.seats else None

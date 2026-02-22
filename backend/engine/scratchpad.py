@@ -7,6 +7,9 @@ from backend.engine.state import TableState
 from backend.models.event import EventType
 from backend.models.scratchpad import Scratchpad, ScratchpadAction, ScratchpadEdit, ScratchpadVisibility
 
+# Maximum scratchpad content size in characters (~64KB)
+MAX_SCRATCHPAD_CONTENT = 65_536
+
 
 def _content_hash(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
@@ -34,15 +37,24 @@ def apply_scratchpad_edit(
     hash_before = _content_hash(content_before)
 
     if edit.action == ScratchpadAction.APPEND:
-        sp.content = sp.content + edit.content
+        new_content = sp.content + edit.content
     elif edit.action == ScratchpadAction.REPLACE:
-        sp.content = edit.content
+        new_content = edit.content
     elif edit.action == ScratchpadAction.CLEAR:
-        sp.content = ""
+        new_content = ""
     elif edit.action == ScratchpadAction.PROPOSE_EDIT:
         # For shared pads, propose_edit acts as replace (consensus gating TBD)
-        sp.content = edit.content
+        new_content = edit.content
+    else:
+        raise ValueError(f"Unknown scratchpad action: {edit.action}")
 
+    if len(new_content) > MAX_SCRATCHPAD_CONTENT:
+        raise ValueError(
+            f"Scratchpad content exceeds maximum size "
+            f"({len(new_content)}/{MAX_SCRATCHPAD_CONTENT} chars)"
+        )
+
+    sp.content = new_content
     hash_after = _content_hash(sp.content)
     now = datetime.now(timezone.utc)
     sp.last_modified_by = seat_id
