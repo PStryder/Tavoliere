@@ -26,6 +26,90 @@ export function TableSurface({ sendAction }: Props) {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
+  const handleCardSelect = useCallback((cardId: string) => {
+    setSelectedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+  }, []);
+
+  const handleReorder = useCallback(
+    (newOrder: string[]) => {
+      if (!table) return;
+      const myHand = table.zones.find(
+        (z) => z.kind === ZoneKind.HAND && z.owner_seat_id === mySeatId,
+      );
+      sendAction({
+        action_type: ActionType.REORDER,
+        new_order: newOrder,
+        source_zone_id: myHand?.zone_id,
+      });
+    },
+    [sendAction, table, mySeatId],
+  );
+
+  const handleDrop = useCallback(
+    (event: DragEndEvent) => {
+      if (!table) return;
+      const myHand = table.zones.find(
+        (z) => z.kind === ZoneKind.HAND && z.owner_seat_id === mySeatId,
+      );
+      const { active, over } = event;
+      if (!over || !myHand) return;
+
+      const targetZone = over.data.current?.zone as Zone | undefined;
+      if (!targetZone) return;
+
+      const cardIds = selectedCards.size > 0
+        ? Array.from(selectedCards)
+        : [active.id as string];
+
+      sendAction({
+        action_type:
+          cardIds.length > 1
+            ? ActionType.MOVE_CARDS_BATCH
+            : ActionType.MOVE_CARD,
+        card_ids: cardIds,
+        source_zone_id: myHand.zone_id,
+        target_zone_id: targetZone.zone_id,
+      });
+      setSelectedCards(new Set());
+    },
+    [sendAction, table, mySeatId, selectedCards],
+  );
+
+  const handleDeckClick = useCallback(
+    (deckZone: Zone) => {
+      if (!table) return;
+      const myHand = table.zones.find(
+        (z) => z.kind === ZoneKind.HAND && z.owner_seat_id === mySeatId,
+      );
+      if (!myHand) return;
+      sendAction({
+        action_type: ActionType.MOVE_CARD,
+        card_ids: deckZone.card_ids.length > 0 ? [deckZone.card_ids[0]] : [],
+        source_zone_id: deckZone.zone_id,
+        target_zone_id: myHand.zone_id,
+      });
+    },
+    [sendAction, table, mySeatId],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, zoneId?: string, cardIds?: string[]) => {
+      e.preventDefault();
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        zoneId,
+        cardIds: cardIds ?? (selectedCards.size > 0 ? Array.from(selectedCards) : undefined),
+      });
+    },
+    [selectedCards],
+  );
+
   if (!table) return null;
 
   const { seats, zones, cards } = table;
@@ -63,79 +147,6 @@ export function TableSurface({ sendAction }: Props) {
         z.kind !== ZoneKind.HAND &&
         z.visibility !== ZoneVisibility.PRIVATE,
     );
-
-  const handleCardSelect = useCallback((cardId: string) => {
-    setSelectedCards((prev) => {
-      const next = new Set(prev);
-      if (next.has(cardId)) next.delete(cardId);
-      else next.add(cardId);
-      return next;
-    });
-  }, []);
-
-  const handleReorder = useCallback(
-    (newOrder: string[]) => {
-      sendAction({
-        action_type: ActionType.REORDER,
-        new_order: newOrder,
-        source_zone_id: myHand?.zone_id,
-      });
-    },
-    [sendAction, myHand],
-  );
-
-  const handleDrop = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || !myHand) return;
-
-      const targetZone = over.data.current?.zone as Zone | undefined;
-      if (!targetZone) return;
-
-      const cardIds = selectedCards.size > 0
-        ? Array.from(selectedCards)
-        : [active.id as string];
-
-      sendAction({
-        action_type:
-          cardIds.length > 1
-            ? ActionType.MOVE_CARDS_BATCH
-            : ActionType.MOVE_CARD,
-        card_ids: cardIds,
-        source_zone_id: myHand.zone_id,
-        target_zone_id: targetZone.zone_id,
-      });
-      setSelectedCards(new Set());
-    },
-    [sendAction, myHand, selectedCards],
-  );
-
-  const handleDeckClick = useCallback(
-    (deckZone: Zone) => {
-      if (!myHand) return;
-      // Draw top card from deck to hand
-      sendAction({
-        action_type: ActionType.MOVE_CARD,
-        card_ids: deckZone.card_ids.length > 0 ? [deckZone.card_ids[0]] : [],
-        source_zone_id: deckZone.zone_id,
-        target_zone_id: myHand.zone_id,
-      });
-    },
-    [sendAction, myHand],
-  );
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, zoneId?: string, cardIds?: string[]) => {
-      e.preventDefault();
-      setContextMenu({
-        x: e.clientX,
-        y: e.clientY,
-        zoneId,
-        cardIds: cardIds ?? (selectedCards.size > 0 ? Array.from(selectedCards) : undefined),
-      });
-    },
-    [selectedCards],
-  );
 
   return (
     <DndContext onDragEnd={handleDrop}>

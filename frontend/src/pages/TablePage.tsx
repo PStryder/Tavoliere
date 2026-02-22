@@ -66,6 +66,13 @@ function TablePageInner() {
     if (!isAuthenticated) navigate("/");
   }, [isAuthenticated, navigate]);
 
+  // Navigate to summary when table is destroyed
+  useEffect(() => {
+    if (state.tableDestroyed && tableId) {
+      navigate(`/table/${tableId}/summary`);
+    }
+  }, [state.tableDestroyed, tableId, navigate]);
+
   // Check if research mode needs consent
   useEffect(() => {
     if (state.table?.research_mode && !showConsent) {

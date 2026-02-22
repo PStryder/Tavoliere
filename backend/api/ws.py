@@ -115,24 +115,33 @@ async def websocket_endpoint(websocket: WebSocket, table_id: str, token: str = "
 
 async def _handle_player(websocket: WebSocket, table_id: str, seat) -> None:
     """Handle a player WebSocket connection."""
+    import logging
+    logger = logging.getLogger("tavoliere.ws")
+
     await websocket.accept()
 
     # Register connection
     _connections[table_id][seat.seat_id] = websocket
 
     # Update presence
-    seat.presence = Presence.ACTIVE
-    table = get_table(table_id)
-    table_state = get_or_create_state(table)
-    event = table_state.append_event(
-        event_type=EventType.PRESENCE_CHANGED,
-        seat_id=seat.seat_id,
-        data={"presence": "active"},
-    )
-    await broadcast_event(table_id, event.model_dump(mode="json"))
+    try:
+        seat.presence = Presence.ACTIVE
+        table = get_table(table_id)
+        table_state = get_or_create_state(table)
+        event = table_state.append_event(
+            event_type=EventType.PRESENCE_CHANGED,
+            seat_id=seat.seat_id,
+            data={"presence": "active"},
+        )
+        await broadcast_event(table_id, event.model_dump(mode="json"))
 
-    # Send initial state sync
-    await send_state_sync(websocket, table_id, seat.seat_id)
+        # Send initial state sync
+        await send_state_sync(websocket, table_id, seat.seat_id)
+        logger.info("state_sync sent to %s", seat.seat_id)
+    except Exception:
+        logger.exception("Error during WS setup for %s", seat.seat_id)
+        await websocket.close(code=1011, reason="Internal error during setup")
+        return
 
     try:
         while True:

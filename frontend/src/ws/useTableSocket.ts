@@ -18,7 +18,6 @@ export function useTableSocket({
   token,
   dispatch,
   identityId,
-  onNeedsResync,
   mode = "player",
 }: UseTableSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -27,6 +26,14 @@ export function useTableSocket({
   const backoff = useRef(1000);
   const [connected, setConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+
+  // Keep latest values in refs so connect() doesn't need them as deps
+  const dispatchRef = useRef(dispatch);
+  dispatchRef.current = dispatch;
+  const identityIdRef = useRef(identityId);
+  identityIdRef.current = identityId;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   const send = useCallback((msg: WSInbound) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -42,7 +49,7 @@ export function useTableSocket({
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
     let url = `${protocol}//${host}/ws/${tableId}?token=${token}`;
-    if (mode === "spectate") {
+    if (modeRef.current === "spectate") {
       url += "&mode=spectate";
     }
     const ws = new WebSocket(url);
@@ -60,29 +67,35 @@ export function useTableSocket({
     };
 
     ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data) as WSOutbound;
+      try {
+        const msg = JSON.parse(evt.data) as WSOutbound;
 
-      switch (msg.msg_type) {
-        case "state_sync": {
-          const mySeat =
-            mode === "spectate"
-              ? null
-              : msg.state.seats.find((s) => s.identity_id === identityId);
-          dispatch({
-            type: "STATE_SYNC",
-            state: msg.state,
-            mySeatId: mySeat?.seat_id ?? null,
-          });
-          break;
+        switch (msg.msg_type) {
+          case "state_sync": {
+            const mySeat =
+              modeRef.current === "spectate"
+                ? null
+                : msg.state.seats.find(
+                    (s) => s.identity_id === identityIdRef.current,
+                  );
+            dispatchRef.current({
+              type: "STATE_SYNC",
+              state: msg.state,
+              mySeatId: mySeat?.seat_id ?? null,
+            });
+            break;
+          }
+          case "event":
+            dispatchRef.current({ type: "EVENT", event: msg.event });
+            break;
+          case "error":
+            setLastError(`${msg.error_code}: ${msg.error}`);
+            break;
+          case "pong":
+            break;
         }
-        case "event":
-          dispatch({ type: "EVENT", event: msg.event });
-          break;
-        case "error":
-          setLastError(`${msg.error_code}: ${msg.error}`);
-          break;
-        case "pong":
-          break;
+      } catch {
+        /* malformed message, ignore */
       }
     };
 
@@ -100,7 +113,7 @@ export function useTableSocket({
     ws.onerror = () => {
       setLastError("WebSocket connection error");
     };
-  }, [tableId, token, identityId, dispatch, send, mode]);
+  }, [tableId, token, send]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -121,32 +134,25 @@ export function useTableSocket({
     return disconnect;
   }, [tableId, token, connect, disconnect]);
 
-  // Watch for needsResync
-  useEffect(() => {
-    if (onNeedsResync) {
-      // The parent can call getTable() REST and dispatch STATE_SYNC
-    }
-  }, [onNeedsResync]);
-
   const sendAction = useCallback(
     (intent: ActionIntent) => {
-      if (mode === "spectate") return;
+      if (modeRef.current === "spectate") return;
       send({ msg_type: "action", intent });
     },
-    [send, mode],
+    [send],
   );
 
   const sendAck = useCallback(
     (actionId: string) => {
-      if (mode === "spectate") return;
+      if (modeRef.current === "spectate") return;
       send({ msg_type: "ack", action_id: actionId });
     },
-    [send, mode],
+    [send],
   );
 
   const sendNack = useCallback(
     (actionId: string, reason?: DisputeReason, reasonText?: string) => {
-      if (mode === "spectate") return;
+      if (modeRef.current === "spectate") return;
       send({
         msg_type: "nack",
         action_id: actionId,
@@ -154,12 +160,12 @@ export function useTableSocket({
         reason_text: reasonText,
       });
     },
-    [send, mode],
+    [send],
   );
 
   const sendDispute = useCallback(
     (actionId: string, reason?: DisputeReason, reasonText?: string) => {
-      if (mode === "spectate") return;
+      if (modeRef.current === "spectate") return;
       send({
         msg_type: "dispute",
         action_id: actionId,
@@ -167,7 +173,7 @@ export function useTableSocket({
         reason_text: reasonText,
       });
     },
-    [send, mode],
+    [send],
   );
 
   const sendChat = useCallback(
@@ -179,10 +185,10 @@ export function useTableSocket({
 
   const sendAckPosture = useCallback(
     (ackPosture: AckPosture) => {
-      if (mode === "spectate") return;
+      if (modeRef.current === "spectate") return;
       send({ msg_type: "set_ack_posture", ack_posture: ackPosture });
     },
-    [send, mode],
+    [send],
   );
 
   return {
