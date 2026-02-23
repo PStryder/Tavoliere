@@ -630,7 +630,7 @@ class TestReviewFixes:
         assert "turn_state" not in view
 
     def test_visibility_includes_populated_shuffle_state(self):
-        """Fix #1: ShuffleState included when populated."""
+        """Fix #1: ShuffleState included when populated, but seed is excluded."""
         table = _create_test_table()
         seat = _join(table, "Player", 0)
         state = _make_state(table)
@@ -640,7 +640,9 @@ class TestReviewFixes:
 
         view = filter_table_for_seat(table, seat.seat_id)
         assert "shuffle_state" in view
-        assert view["shuffle_state"]["seed"] is not None
+        # Seed must NOT be exposed to clients (security fix)
+        assert "seed" not in view["shuffle_state"]
+        assert view["shuffle_state"]["shuffled_by"] == seat.seat_id
 
     def test_visibility_includes_populated_turn_state(self):
         """Fix #1: TurnState included when it has meaningful data."""

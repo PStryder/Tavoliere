@@ -16,6 +16,7 @@ export interface TableContextState {
   chatMessages: ChatMessage[];
   needsResync: boolean;
   tableDestroyed: boolean;
+  lastCommittedSeq: number | null;
 }
 
 export type TableAction =
@@ -31,6 +32,7 @@ export const initialTableState: TableContextState = {
   chatMessages: [],
   needsResync: false,
   tableDestroyed: false,
+  lastCommittedSeq: null,
 };
 
 export function tableReducer(
@@ -68,7 +70,11 @@ function handleEvent(
   switch (event.event_type) {
     case EventType.ACTION_COMMITTED: {
       // For v0.1: request resync for complex state mutations
-      return { ...state, needsResync: true };
+      return {
+        ...state,
+        needsResync: true,
+        lastCommittedSeq: event.seq ?? state.lastCommittedSeq,
+      };
     }
 
     case EventType.ACTION_ROLLED_BACK:

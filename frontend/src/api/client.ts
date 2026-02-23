@@ -1,7 +1,14 @@
-let authToken: string | null = null;
+const TOKEN_KEY = "tavoliere_token";
+
+let authToken: string | null = sessionStorage.getItem(TOKEN_KEY);
 
 export function setToken(t: string | null) {
   authToken = t;
+  if (t) {
+    sessionStorage.setItem(TOKEN_KEY, t);
+  } else {
+    sessionStorage.removeItem(TOKEN_KEY);
+  }
 }
 
 export function getToken(): string | null {
@@ -27,9 +34,12 @@ export async function apiFetch<T>(
   opts?: RequestInit,
 ): Promise<T> {
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(opts?.headers as Record<string, string>),
   };
+
+  if (opts?.body) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (authToken) {
     headers["Authorization"] = `Bearer ${authToken}`;

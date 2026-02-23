@@ -69,15 +69,17 @@ def create_table(req: TableCreate) -> Table:
             settings_dump=table.settings.model_dump(),
             deck_recipe=table.deck_recipe.value,
             max_seats=table.settings.max_seats,
-            ai_min_action_delay_ms=table.settings.min_action_delay_ms or None,
-            ai_latency_simulation_enabled=table.settings.min_action_delay_ms > 0,
+            # 0 and None both mean "no delay" → normalize to None
+            ai_min_action_delay_ms=table.settings.min_action_delay_ms if table.settings.min_action_delay_ms else None,
+            ai_latency_simulation_enabled=bool(table.settings.min_action_delay_ms),
         )
         config = ResearchConfig(
             session_id=str(uuid.uuid4()),
             identity_salt=secrets.token_hex(16),
             research_mode_version=req.research_mode_version,
-            ai_min_action_delay_ms=table.settings.min_action_delay_ms or None,
-            ai_latency_simulation_enabled=table.settings.min_action_delay_ms > 0,
+            # 0 and None both mean "no delay" → normalize to None
+            ai_min_action_delay_ms=table.settings.min_action_delay_ms if table.settings.min_action_delay_ms else None,
+            ai_latency_simulation_enabled=bool(table.settings.min_action_delay_ms),
             table_config_hash=config_hash,
         )
         observer = ResearchObserver(config)

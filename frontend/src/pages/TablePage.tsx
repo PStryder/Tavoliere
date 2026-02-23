@@ -5,7 +5,10 @@ import { useTable } from "../hooks/useTable";
 import { TableProvider } from "../state/TableContext";
 import { useTableSocket } from "../ws/useTableSocket";
 import { getTable, leaveTable } from "../api/tables";
+import { getConsent } from "../api/consent";
 import { TableSurface } from "../components/table/TableSurface";
+import { ActionToolbar } from "../components/table/ActionToolbar";
+import { HostSettingsPanel } from "../components/table/HostSettingsPanel";
 import { PendingActionBar } from "../components/table/PendingActionBar";
 import { DisputeBanner } from "../components/table/DisputeBanner";
 import { PhaseLabel } from "../components/table/PhaseLabel";
@@ -19,6 +22,8 @@ function TablePageInner() {
   const { token, identity, isAuthenticated } = useAuth();
   const { state, dispatch } = useTable();
   const [showConsent, setShowConsent] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
 
   const handleResync = useCallback(async () => {
     if (!tableId) return;
@@ -43,7 +48,6 @@ function TablePageInner() {
     sendAction,
     sendAck,
     sendNack,
-    sendDispute,
     sendChat,
     sendAckPosture,
   } = useTableSocket({
@@ -73,13 +77,16 @@ function TablePageInner() {
     }
   }, [state.tableDestroyed, tableId, navigate]);
 
-  // Check if research mode needs consent
+  // Check if research mode needs consent — only show if no prior consent
   useEffect(() => {
-    if (state.table?.research_mode && !showConsent) {
-      // Show consent modal on first load for research tables
-      setShowConsent(true);
+    if (state.table?.research_mode && tableId) {
+      getConsent(tableId).then((existing) => {
+        if (!existing) {
+          setShowConsent(true);
+        }
+      });
     }
-  }, [state.table?.research_mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.table?.research_mode, tableId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLeave = useCallback(async () => {
     if (!tableId) return;
@@ -92,6 +99,8 @@ function TablePageInner() {
   }, [tableId, navigate]);
 
   if (!tableId) return null;
+
+  const isHost = state.table?.host_seat_id === state.mySeatId;
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
@@ -110,6 +119,15 @@ function TablePageInner() {
           {state.table && <PhaseLabel phase={state.table.phase} sendAction={sendAction} />}
         </div>
         <div className="flex items-center gap-3 text-sm">
+          {isHost && (
+            <button
+              onClick={() => setShowSettings(true)}
+              className="text-gray-400 hover:text-white text-lg"
+              title="Table settings"
+            >
+              &#x2699;
+            </button>
+          )}
           <span
             className={`w-2 h-2 rounded-full ${
               connected ? "bg-green-500" : "bg-red-500"
@@ -128,9 +146,17 @@ function TablePageInner() {
       {state.table?.dispute_active && (
         <DisputeBanner
           disputeActionId={state.table.dispute_action_id}
-          mySeatId={state.mySeatId}
-          sendDispute={sendDispute}
           tableId={tableId}
+        />
+      )}
+
+      {/* Action toolbar */}
+      {state.table && (
+        <ActionToolbar
+          sendAction={sendAction}
+          selectedCards={selectedCards}
+          zones={state.table.zones}
+          seatIds={state.table.seats.map((s) => s.seat_id)}
         />
       )}
 
@@ -139,7 +165,11 @@ function TablePageInner() {
         {/* Game area */}
         <div className="flex-1 flex flex-col">
           <div className="flex-1 overflow-auto">
-            <TableSurface sendAction={sendAction} />
+            <TableSurface
+              sendAction={sendAction}
+              selectedCards={selectedCards}
+              onSelectedCardsChange={setSelectedCards}
+            />
           </div>
 
           {/* Pending actions */}
@@ -177,6 +207,15 @@ function TablePageInner() {
           tableId={tableId}
           onAccept={() => setShowConsent(false)}
           onDecline={() => navigate("/lobby")}
+        />
+      )}
+
+      {/* Host settings */}
+      {showSettings && state.table && (
+        <HostSettingsPanel
+          tableId={tableId}
+          settings={state.table.settings}
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>

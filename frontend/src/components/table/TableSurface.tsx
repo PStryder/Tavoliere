@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { arrayMove } from "@dnd-kit/sortable";
 import { useTable } from "../../hooks/useTable";
 import { ZoneKind, ZoneVisibility, ActionType } from "../../types/enums";
 import type { Zone, ActionIntent } from "../../types/models";
@@ -11,6 +12,8 @@ import { ActionMenu } from "./ActionMenu";
 
 interface Props {
   sendAction: (intent: ActionIntent) => void;
+  selectedCards?: Set<string>;
+  onSelectedCardsChange?: (cards: Set<string>) => void;
 }
 
 interface ContextMenuState {
@@ -20,20 +23,27 @@ interface ContextMenuState {
   cardIds?: string[];
 }
 
-export function TableSurface({ sendAction }: Props) {
+export function TableSurface({
+  sendAction,
+  selectedCards: externalSelectedCards,
+  onSelectedCardsChange,
+}: Props) {
   const { state } = useTable();
   const { table, mySeatId } = state;
-  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const [internalSelectedCards, setInternalSelectedCards] = useState<Set<string>>(new Set());
+  const selectedCards = externalSelectedCards ?? internalSelectedCards;
+  const setSelectedCards = onSelectedCardsChange ?? setInternalSelectedCards;
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
-  const handleCardSelect = useCallback((cardId: string) => {
-    setSelectedCards((prev) => {
-      const next = new Set(prev);
+  const handleCardSelect = useCallback(
+    (cardId: string) => {
+      const next = new Set(selectedCards);
       if (next.has(cardId)) next.delete(cardId);
       else next.add(cardId);
-      return next;
-    });
-  }, []);
+      setSelectedCards(next);
+    },
+    [selectedCards, setSelectedCards],
+  );
 
   const handleReorder = useCallback(
     (newOrder: string[]) => {
@@ -53,14 +63,29 @@ export function TableSurface({ sendAction }: Props) {
   const handleDrop = useCallback(
     (event: DragEndEvent) => {
       if (!table) return;
-      const myHand = table.zones.find(
-        (z) => z.kind === ZoneKind.HAND && z.owner_seat_id === mySeatId,
-      );
       const { active, over } = event;
-      if (!over || !myHand) return;
+      if (!over) return;
 
-      const targetZone = over.data.current?.zone as Zone | undefined;
-      if (!targetZone) return;
+      const sourceZoneId = active.data.current?.zone as string | undefined;
+      const targetZoneId = (over.data.current?.zone as Zone | undefined)?.zone_id
+        ?? (over.data.current?.zone as string | undefined);
+
+      // Same-zone reorder (within hand)
+      if (sourceZoneId && targetZoneId === sourceZoneId) {
+        const zone = table.zones.find((z) => z.zone_id === sourceZoneId);
+        if (zone) {
+          const oldIndex = zone.card_ids.indexOf(active.id as string);
+          const newIndex = zone.card_ids.indexOf(over.id as string);
+          if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+            const newOrder = arrayMove(zone.card_ids, oldIndex, newIndex);
+            handleReorder(newOrder);
+          }
+        }
+        return;
+      }
+
+      // Cross-zone move — read source from drag data
+      if (!sourceZoneId || !targetZoneId) return;
 
       const cardIds = selectedCards.size > 0
         ? Array.from(selectedCards)
@@ -72,24 +97,25 @@ export function TableSurface({ sendAction }: Props) {
             ? ActionType.MOVE_CARDS_BATCH
             : ActionType.MOVE_CARD,
         card_ids: cardIds,
-        source_zone_id: myHand.zone_id,
-        target_zone_id: targetZone.zone_id,
+        source_zone_id: sourceZoneId,
+        target_zone_id: typeof targetZoneId === "string" ? targetZoneId : targetZoneId,
       });
       setSelectedCards(new Set());
     },
-    [sendAction, table, mySeatId, selectedCards],
+    [sendAction, table, selectedCards, handleReorder],
   );
 
   const handleDeckClick = useCallback(
     (deckZone: Zone) => {
       if (!table) return;
+      if (deckZone.card_ids.length === 0) return;
       const myHand = table.zones.find(
         (z) => z.kind === ZoneKind.HAND && z.owner_seat_id === mySeatId,
       );
       if (!myHand) return;
       sendAction({
         action_type: ActionType.MOVE_CARD,
-        card_ids: deckZone.card_ids.length > 0 ? [deckZone.card_ids[0]] : [],
+        card_ids: [deckZone.card_ids[0]],
         source_zone_id: deckZone.zone_id,
         target_zone_id: myHand.zone_id,
       });
@@ -110,7 +136,16 @@ export function TableSurface({ sendAction }: Props) {
     [selectedCards],
   );
 
-  if (!table) return null;
+  if (!table) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="flex flex-col items-center gap-3 text-gray-500">
+          <div className="w-8 h-8 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+          <span className="text-sm">Loading table...</span>
+        </div>
+      </div>
+    );
+  }
 
   const { seats, zones, cards } = table;
 
@@ -149,7 +184,7 @@ export function TableSurface({ sendAction }: Props) {
     );
 
   return (
-    <DndContext onDragEnd={handleDrop}>
+    <DndContext collisionDetection={closestCenter} onDragEnd={handleDrop}>
       <div
         className="grid grid-rows-[auto_1fr_auto] grid-cols-[auto_1fr_auto] gap-4 h-full p-4"
         onContextMenu={(e) => handleContextMenu(e)}

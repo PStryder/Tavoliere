@@ -1,15 +1,8 @@
 import { apiFetch } from "../../api/client";
-import type { DisputeReason } from "../../types/enums";
 
 interface Props {
   disputeActionId: string | null;
-  mySeatId: string | null;
   tableId: string;
-  sendDispute: (
-    actionId: string,
-    reason?: DisputeReason,
-    reasonText?: string,
-  ) => void;
 }
 
 export function DisputeBanner({

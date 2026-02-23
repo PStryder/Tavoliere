@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Header } from "../components/layout/Header";
@@ -14,10 +14,11 @@ export function DataExplorerPage() {
   const [activeTab, setActiveTab] = useState<Tab>("sessions");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  if (!isAuthenticated) {
-    navigate("/");
-    return null;
-  }
+  useEffect(() => {
+    if (!isAuthenticated) navigate("/");
+  }, [isAuthenticated, navigate]);
+
+  if (!isAuthenticated) return null;
 
   function toggleSelection(tableId: string) {
     setSelectedIds((prev) => {

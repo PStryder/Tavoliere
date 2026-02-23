@@ -1,14 +1,8 @@
 import { useState, useEffect } from "react";
 import {
-  DndContext,
-  closestCenter,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
   SortableContext,
   horizontalListSortingStrategy,
   useSortable,
-  arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Card, Zone } from "../../types/models";
@@ -17,7 +11,7 @@ import { Suit } from "../../types/enums";
 interface Props {
   zone: Zone;
   cards: Record<string, Card>;
-  onReorder: (newOrder: string[]) => void;
+  onReorder?: (newOrder: string[]) => void;
   onCardSelect?: (cardId: string) => void;
   selectedCards?: Set<string>;
 }
@@ -36,17 +30,21 @@ const SUIT_COLORS: Record<string, string> = {
   [Suit.SPADES]: "text-white",
 };
 
+const EMPTY_SET = new Set<string>();
+
 function SortableCard({
   card,
+  zoneId,
   selected,
   onClick,
 }: {
   card: Card;
+  zoneId: string;
   selected: boolean;
   onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: card.unique_id });
+    useSortable({ id: card.unique_id, data: { zone: zoneId } });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -81,9 +79,8 @@ function SortableCard({
 export function HandZone({
   zone,
   cards,
-  onReorder,
   onCardSelect,
-  selectedCards = new Set(),
+  selectedCards = EMPTY_SET,
 }: Props) {
   const [cardOrder, setCardOrder] = useState<string[]>(zone.card_ids);
 
@@ -102,38 +99,29 @@ export function HandZone({
     }
   }, [zone.card_ids]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = cardOrder.indexOf(active.id as string);
-    const newIndex = cardOrder.indexOf(over.id as string);
-    const newOrder = arrayMove(cardOrder, oldIndex, newIndex);
-    setCardOrder(newOrder);
-    onReorder(newOrder);
-  }
+  // Expose handleReorder for the outer DndContext to call via onReorder
+  // The outer DndContext detects same-zone reorder and calls onReorder directly
 
   return (
     <div className="flex items-center gap-1 p-2 bg-gray-800/50 rounded-lg min-h-[96px]">
-      <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext
-          items={cardOrder}
-          strategy={horizontalListSortingStrategy}
-        >
-          {cardOrder.map((cardId) => {
-            const card = cards[cardId];
-            if (!card) return null;
-            return (
-              <SortableCard
-                key={cardId}
-                card={card}
-                selected={selectedCards.has(cardId)}
-                onClick={() => onCardSelect?.(cardId)}
-              />
-            );
-          })}
-        </SortableContext>
-      </DndContext>
+      <SortableContext
+        items={cardOrder}
+        strategy={horizontalListSortingStrategy}
+      >
+        {cardOrder.map((cardId) => {
+          const card = cards[cardId];
+          if (!card) return null;
+          return (
+            <SortableCard
+              key={cardId}
+              card={card}
+              zoneId={zone.zone_id}
+              selected={selectedCards.has(cardId)}
+              onClick={() => onCardSelect?.(cardId)}
+            />
+          );
+        })}
+      </SortableContext>
       {cardOrder.length === 0 && (
         <span className="text-gray-500 text-sm px-4">Empty hand</span>
       )}

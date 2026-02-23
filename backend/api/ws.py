@@ -1,5 +1,4 @@
 import asyncio
-import json
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -21,7 +20,7 @@ from backend.engine.table_manager import get_seat_for_identity, get_table
 from backend.engine.visibility import filter_table_for_seat
 from backend.models.action import ActionClass, ActionIntent
 from backend.models.chat import ChatMessage
-from backend.models.event import EventType
+from backend.models.event import Event, EventType
 from backend.models.protocol import WSInbound, WSOutbound
 from backend.models.seat import AckPosture, Presence
 
@@ -38,14 +37,16 @@ def get_connections(table_id: str) -> dict[str, WebSocket]:
     return _connections[table_id]
 
 
-async def broadcast_event(table_id: str, event_data: dict, table=None, channel: str | None = None) -> None:
+async def broadcast_event(table_id: str, event: Event, channel: str | None = None) -> None:
     """Broadcast an event to all connected seats and observers."""
+    msg = WSOutbound(msg_type="event", event=event)
+    payload = msg.model_dump_json()
+
     # Send to players
     conns = _connections.get(table_id, {})
     for seat_id, ws in list(conns.items()):
-        msg = WSOutbound(msg_type="event", event=event_data)
         try:
-            await ws.send_text(msg.model_dump_json())
+            await ws.send_text(payload)
         except Exception:
             conns.pop(seat_id, None)
 
@@ -53,20 +54,20 @@ async def broadcast_event(table_id: str, event_data: dict, table=None, channel: 
     if channel != "spectator":
         observers = _observers.get(table_id, {})
         for obs_id, ws in list(observers.items()):
-            msg = WSOutbound(msg_type="event", event=event_data)
             try:
-                await ws.send_text(msg.model_dump_json())
+                await ws.send_text(payload)
             except Exception:
                 observers.pop(obs_id, None)
 
 
-async def _broadcast_to_observers(table_id: str, event_data: dict) -> None:
+async def _broadcast_to_observers(table_id: str, event: Event) -> None:
     """Broadcast an event only to observers (for spectator chat)."""
+    msg = WSOutbound(msg_type="event", event=event)
+    payload = msg.model_dump_json()
     observers = _observers.get(table_id, {})
     for obs_id, ws in list(observers.items()):
-        msg = WSOutbound(msg_type="event", event=event_data)
         try:
-            await ws.send_text(msg.model_dump_json())
+            await ws.send_text(payload)
         except Exception:
             observers.pop(obs_id, None)
 
@@ -124,6 +125,7 @@ async def _handle_player(websocket: WebSocket, table_id: str, seat) -> None:
     _connections[table_id][seat.seat_id] = websocket
 
     # Update presence
+    table_state = None
     try:
         seat.presence = Presence.ACTIVE
         table = get_table(table_id)
@@ -133,7 +135,7 @@ async def _handle_player(websocket: WebSocket, table_id: str, seat) -> None:
             seat_id=seat.seat_id,
             data={"presence": "active"},
         )
-        await broadcast_event(table_id, event.model_dump(mode="json"))
+        await broadcast_event(table_id, event)
 
         # Send initial state sync
         await send_state_sync(websocket, table_id, seat.seat_id)
@@ -157,13 +159,14 @@ async def _handle_player(websocket: WebSocket, table_id: str, seat) -> None:
         # Clean up connection
         _connections.get(table_id, {}).pop(seat.seat_id, None)
         # Update presence
-        seat.presence = Presence.DISCONNECTED
-        event = table_state.append_event(
-            event_type=EventType.PRESENCE_CHANGED,
-            seat_id=seat.seat_id,
-            data={"presence": "disconnected"},
-        )
-        await broadcast_event(table_id, event.model_dump(mode="json"))
+        if table_state is not None:
+            seat.presence = Presence.DISCONNECTED
+            event = table_state.append_event(
+                event_type=EventType.PRESENCE_CHANGED,
+                seat_id=seat.seat_id,
+                data={"presence": "disconnected"},
+            )
+            await broadcast_event(table_id, event)
 
 
 async def _handle_spectator(websocket: WebSocket, table_id: str, identity_id: str) -> None:
@@ -220,7 +223,7 @@ async def _handle_spectator_inbound(
             data=chat_msg.model_dump(mode="json"),
         )
         # Spectator chat only goes to observers
-        await _broadcast_to_observers(table_id, event.model_dump(mode="json"))
+        await _broadcast_to_observers(table_id, event)
     else:
         await send_error(ws, "Spectators can only send ping and chat", "SPECTATOR_RESTRICTED")
 
@@ -252,6 +255,7 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
             await send_error(ws, "Missing intent", "MISSING_INTENT")
             return
         try:
+            log_start = len(table_state.event_log)
             action_class = classify_action(msg.intent, table)
             if action_class == ActionClass.UNILATERAL:
                 result = execute_unilateral(msg.intent, seat, table_state)
@@ -259,9 +263,9 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
                 result = create_consensus_intent(msg.intent, seat, table_state)
             elif action_class == ActionClass.OPTIMISTIC:
                 result = execute_optimistic(msg.intent, seat, table_state)
-            # Broadcast latest events
-            for event in table_state.event_log[-3:]:
-                await broadcast_event(table_id, event.model_dump(mode="json"))
+            # Broadcast only new events
+            for event in table_state.event_log[log_start:]:
+                await broadcast_event(table_id, event)
         except (RateLimitError, ValueError) as e:
             await send_error(ws, str(e), "ACTION_ERROR")
 
@@ -269,27 +273,30 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
         if not msg.action_id:
             await send_error(ws, "Missing action_id", "MISSING_ACTION_ID")
             return
+        log_start = len(table_state.event_log)
         result = handle_ack(table_id, msg.action_id, seat_id, table_state)
-        for event in table_state.event_log[-3:]:
-            await broadcast_event(table_id, event.model_dump(mode="json"))
+        for event in table_state.event_log[log_start:]:
+            await broadcast_event(table_id, event)
 
     elif msg.msg_type == "nack":
         if not msg.action_id:
             await send_error(ws, "Missing action_id", "MISSING_ACTION_ID")
             return
         reason = msg.reason.value if msg.reason else None
+        log_start = len(table_state.event_log)
         result = handle_nack(
             table_id, msg.action_id, seat_id, table_state,
             reason=reason, reason_text=msg.reason_text,
         )
-        for event in table_state.event_log[-3:]:
-            await broadcast_event(table_id, event.model_dump(mode="json"))
+        for event in table_state.event_log[log_start:]:
+            await broadcast_event(table_id, event)
 
     elif msg.msg_type == "dispute":
         if not msg.action_id:
             await send_error(ws, "Missing action_id", "MISSING_ACTION_ID")
             return
         reason = msg.reason.value if msg.reason else None
+        log_start = len(table_state.event_log)
         result = dispute_optimistic(
             table_id, msg.action_id, seat_id, table_state,
             reason=reason, reason_text=msg.reason_text,
@@ -297,8 +304,8 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
         if result.status == "rejected":
             await send_error(ws, result.reason or "Dispute failed", "DISPUTE_FAILED")
         else:
-            for event in table_state.event_log[-3:]:
-                await broadcast_event(table_id, event.model_dump(mode="json"))
+            for event in table_state.event_log[log_start:]:
+                await broadcast_event(table_id, event)
 
     elif msg.msg_type == "chat":
         if not msg.text:
@@ -319,7 +326,7 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
             data=chat_msg.model_dump(mode="json"),
         )
         # Game chat goes to players + observers
-        await broadcast_event(table_id, event.model_dump(mode="json"))
+        await broadcast_event(table_id, event)
 
     elif msg.msg_type == "set_ack_posture":
         if not msg.ack_posture:
@@ -331,4 +338,4 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
             seat_id=seat_id,
             data=msg.ack_posture.model_dump(),
         )
-        await broadcast_event(table_id, event.model_dump(mode="json"))
+        await broadcast_event(table_id, event)

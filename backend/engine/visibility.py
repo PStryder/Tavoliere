@@ -66,7 +66,7 @@ def filter_table_for_seat(table: Table, seat_id: str) -> dict:
         result["scratchpads"] = filtered_scratchpads
 
     if table.shuffle_state.seed is not None:
-        result["shuffle_state"] = table.shuffle_state.model_dump()
+        result["shuffle_state"] = table.shuffle_state.model_dump(exclude={"seed"})
 
     if table.turn_state.active_seat_id is not None or table.turn_state.phase_label:
         result["turn_state"] = table.turn_state.model_dump()

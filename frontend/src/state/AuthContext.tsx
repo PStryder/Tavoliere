@@ -59,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (displayName: string) => {
     const res = await bootstrap(displayName);
+    if (!res.credentials?.length) {
+      throw new Error("Bootstrap returned no credentials");
+    }
     const cred = res.credentials[0];
     const tokenRes = await getToken(cred.client_id, cred.client_secret);
     setToken(tokenRes.access_token);

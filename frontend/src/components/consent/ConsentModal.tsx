@@ -31,14 +31,18 @@ export function ConsentModal({ tableId, onAccept, onDecline }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getConsentRequirements(tableId).then((reqs) => {
-      setRequirements(reqs);
-      // Pre-check required tiers
-      const initial: Record<string, boolean> = {};
-      for (const t of reqs.required) initial[t] = true;
-      for (const t of reqs.optional) initial[t] = false;
-      setTiers(initial);
-    });
+    getConsentRequirements(tableId)
+      .then((reqs) => {
+        setRequirements(reqs);
+        // Pre-check required tiers
+        const initial: Record<string, boolean> = {};
+        for (const t of reqs.required) initial[t] = true;
+        for (const t of reqs.optional) initial[t] = false;
+        setTiers(initial);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load consent requirements");
+      });
   }, [tableId]);
 
   async function handleAccept() {

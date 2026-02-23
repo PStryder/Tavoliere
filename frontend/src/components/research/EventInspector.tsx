@@ -39,13 +39,19 @@ export function EventInspector({ availableTableIds }: Props) {
     const token = getToken();
     // Open in new tab with auth via fetch + blob
     fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then((r) => r.blob())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Export failed: ${r.status}`);
+        return r.blob();
+      })
       .then((blob) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = `${tableId}.research.ndjson`;
         a.click();
         URL.revokeObjectURL(a.href);
+      })
+      .catch((err) => {
+        console.error("Export failed:", err);
       });
   }
 

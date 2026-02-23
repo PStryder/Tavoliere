@@ -187,6 +187,28 @@ def _commit_consensus(pa: PendingAction, table_state: TableState) -> ActionResul
     table = table_state.table
     pending = get_pending_actions(table.table_id)
 
+    # Handle UNDO via snapshot rollback before normal mutation path
+    if pa.intent.action_type == ActionType.UNDO:
+        if pa.intent.target_event_seq is None:
+            pending.pop(pa.action_id, None)
+            return ActionResult(action_id=pa.action_id, status="rejected", reason="Missing target_event_seq")
+        success = table_state.rollback_to(pa.intent.target_event_seq)
+        if not success:
+            pending.pop(pa.action_id, None)
+            return ActionResult(action_id=pa.action_id, status="rejected", reason="Snapshot not found for target seq")
+        pending.pop(pa.action_id, None)
+        table_state.append_event(
+            event_type=EventType.ACTION_COMMITTED,
+            seat_id=pa.proposer_seat_id,
+            action_id=pa.action_id,
+            data={
+                "action_type": pa.intent.action_type.value,
+                "action_class": ActionClass.CONSENSUS.value,
+                "intent": pa.intent.model_dump(mode="json"),
+            },
+        )
+        return ActionResult(action_id=pa.action_id, status="committed")
+
     table_state.take_snapshot()
     _apply_consensus_mutation(pa.intent, pa.proposer_seat_id, table)
     pending.pop(pa.action_id, None)
@@ -275,6 +297,11 @@ def _move_cards(card_ids: list[str], source_id: str, target_id: str, table: Tabl
     if not source or not target:
         raise ValueError("Source or target zone not found")
 
+    # Pre-validate all cards exist in source before mutating
+    for cid in card_ids:
+        if cid not in source.card_ids:
+            raise ValueError(f"Card {cid} not in source zone {source_id}")
+
     for cid in card_ids:
         source.card_ids.remove(cid)
         target.card_ids.append(cid)
@@ -303,6 +330,11 @@ def _deal_round_robin(
 
     if not ordered_targets:
         raise ValueError("No valid target zones found")
+
+    # Pre-validate all cards exist in source before mutating
+    for cid in card_ids:
+        if cid not in source.card_ids:
+            raise ValueError(f"Card {cid} not in source zone {source_zone_id}")
 
     # Deal round-robin
     for i, cid in enumerate(card_ids):

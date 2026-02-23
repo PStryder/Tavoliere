@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.auth.deps import get_current_identity
@@ -94,7 +94,7 @@ async def destroy_table(
         seat_id=seat.seat_id,
         data={"reason": "host_destroyed"},
     )
-    await broadcast_event(table_id, event.model_dump(mode="json"))
+    await broadcast_event(table_id, event)
 
     delete_table(table_id)
 
@@ -145,7 +145,20 @@ async def update_settings(
     if not seat or seat.seat_id != table.host_seat_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only host can update settings")
 
+    unknown_keys = set(updates) - set(TableSettings.model_fields)
+    if unknown_keys:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown settings keys: {', '.join(sorted(unknown_keys))}",
+        )
+
     current = table.settings.model_dump()
     current.update(updates)
-    table.settings = TableSettings(**current)
+    try:
+        table.settings = TableSettings(**current)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=e.errors(),
+        )
     return table.settings.model_dump()

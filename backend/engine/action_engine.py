@@ -156,15 +156,16 @@ def _find_zone_containing_card(table: Table, card_id: str) -> Zone | None:
 def _check_rate_limits(seat_id: str, intent: ActionIntent, table: Table) -> None:
     settings = table.settings
     limiter = _rate_limiter
+    key_prefix = f"{table.table_id}:{seat_id}"
 
     if intent.action_type == ActionType.SHUFFLE:
-        limiter.check(seat_id, "shuffle", 1, settings.shuffle_cooldown_s)
+        limiter.check(key_prefix, "shuffle", 1, settings.shuffle_cooldown_s)
     elif intent.action_type == ActionType.SET_PHASE:
-        limiter.check(seat_id, "phase_change", 1, settings.phase_change_cooldown_s)
+        limiter.check(key_prefix, "phase_change", 1, settings.phase_change_cooldown_s)
 
     # General intent rate limit
     limiter.check(
-        seat_id, "intent",
+        key_prefix, "intent",
         settings.intent_rate_max_count,
         settings.intent_rate_window_s,
     )

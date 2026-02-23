@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Event, TableState } from "../types/models";
 import { EventType } from "../types/enums";
 import { getEvents } from "../api/history";
@@ -29,6 +29,8 @@ export function useReplay(tableId: string): UseReplayReturn {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentSeqRef = useRef(currentSeq);
+  currentSeqRef.current = currentSeq;
 
   // Load events on mount
   useEffect(() => {
@@ -53,7 +55,7 @@ export function useReplay(tableId: string): UseReplayReturn {
   }, [tableId]);
 
   // Rebuild state by replaying events 0..currentSeq
-  const state = (() => {
+  const state = useMemo(() => {
     let s = initialTableState;
     for (let i = 0; i < currentSeq && i < events.length; i++) {
       const evt = events[i];
@@ -69,7 +71,7 @@ export function useReplay(tableId: string): UseReplayReturn {
       }
     }
     return s;
-  })();
+  }, [currentSeq, events]);
 
   const currentEvent = currentSeq > 0 && currentSeq <= events.length
     ? events[currentSeq - 1]
@@ -102,13 +104,11 @@ export function useReplay(tableId: string): UseReplayReturn {
     if (isPlaying && events.length > 0) {
       const interval = Math.max(50, 500 / speed);
       timerRef.current = setInterval(() => {
-        setCurrentSeq((prev) => {
-          if (prev >= events.length) {
-            setIsPlaying(false);
-            return prev;
-          }
-          return prev + 1;
-        });
+        if (currentSeqRef.current >= events.length) {
+          setIsPlaying(false);
+          return;
+        }
+        setCurrentSeq((prev) => prev + 1);
       }, interval);
     }
     return () => {

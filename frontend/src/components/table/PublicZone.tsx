@@ -27,10 +27,10 @@ export function PublicZone({ zone, cards, onDeckClick }: Props) {
   return (
     <div
       ref={setNodeRef}
-      className={`flex flex-wrap gap-1 p-3 rounded-lg min-h-[96px] min-w-[80px] border-2 border-dashed transition-colors ${
+      className={`flex flex-wrap gap-1 p-3 rounded-lg min-h-[96px] min-w-[80px] border-2 border-dashed transition-all ${
         isOver
-          ? "border-blue-400 bg-blue-900/30"
-          : "border-gray-600 bg-gray-800/30"
+          ? "border-blue-400 bg-blue-900/30 scale-[1.02] shadow-lg shadow-blue-900/20"
+          : "border-gray-600 bg-gray-800/30 hover:border-gray-500"
       }`}
     >
       <div className="w-full text-xs text-gray-500 mb-1">
@@ -40,8 +40,12 @@ export function PublicZone({ zone, cards, onDeckClick }: Props) {
         <CardView key={card.unique_id} card={card} faceUp={card.face_up} />
       ))}
       {zoneCards.length === 0 && (
-        <span className="text-gray-600 text-xs self-center">
-          Drop cards here
+        <span
+          className={`text-xs self-center ${
+            isOver ? "text-blue-400" : "text-gray-600"
+          }`}
+        >
+          {isOver ? "Drop here" : "Drop cards here"}
         </span>
       )}
     </div>

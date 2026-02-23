@@ -18,6 +18,7 @@ export function useTableSocket({
   token,
   dispatch,
   identityId,
+  onNeedsResync,
   mode = "player",
 }: UseTableSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -34,6 +35,8 @@ export function useTableSocket({
   identityIdRef.current = identityId;
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const onNeedsResyncRef = useRef(onNeedsResync);
+  onNeedsResyncRef.current = onNeedsResync;
 
   const send = useCallback((msg: WSInbound) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -56,9 +59,15 @@ export function useTableSocket({
     wsRef.current = ws;
 
     ws.onopen = () => {
+      const isReconnect = backoff.current > 1000;
       setConnected(true);
       setLastError(null);
       backoff.current = 1000;
+
+      // Trigger resync on reconnect to recover missed events
+      if (isReconnect && onNeedsResyncRef.current) {
+        onNeedsResyncRef.current();
+      }
 
       // Keepalive ping every 30s
       pingTimer.current = setInterval(() => {

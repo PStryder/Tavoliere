@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth.deps import get_current_identity
+from backend.auth.models import TokenPayload
 from backend.engine.action_engine import get_rate_limiter
 from backend.engine.rate_limiter import RateLimitError
 from backend.engine.scratchpad import apply_scratchpad_edit
@@ -28,10 +29,10 @@ def _resolve_seat(table_id: str, identity_id: str):
 @router.get("")
 async def list_scratchpads(
     table_id: str,
-    identity_id: str = Depends(get_current_identity),
+    identity: TokenPayload = Depends(get_current_identity),
 ):
     """List scratchpads visible to the requesting seat."""
-    table, seat = _resolve_seat(table_id, identity_id)
+    table, seat = _resolve_seat(table_id, identity.effective_identity)
     result = {}
     for sp_id, sp in table.scratchpads.items():
         if sp.visibility == ScratchpadVisibility.PUBLIC or sp.owner_seat_id == seat.seat_id:
@@ -43,10 +44,10 @@ async def list_scratchpads(
 async def get_scratchpad(
     table_id: str,
     scratchpad_id: str,
-    identity_id: str = Depends(get_current_identity),
+    identity: TokenPayload = Depends(get_current_identity),
 ):
     """Get a single scratchpad."""
-    table, seat = _resolve_seat(table_id, identity_id)
+    table, seat = _resolve_seat(table_id, identity.effective_identity)
     sp = table.scratchpads.get(scratchpad_id)
     if not sp:
         raise HTTPException(status_code=404, detail="Scratchpad not found")
@@ -60,10 +61,10 @@ async def edit_scratchpad(
     table_id: str,
     scratchpad_id: str,
     body: ScratchpadEdit,
-    identity_id: str = Depends(get_current_identity),
+    identity: TokenPayload = Depends(get_current_identity),
 ):
     """Submit a scratchpad edit."""
-    table, seat = _resolve_seat(table_id, identity_id)
+    table, seat = _resolve_seat(table_id, identity.effective_identity)
     state = get_state(table_id)
     if not state:
         raise HTTPException(status_code=404, detail="Table state not found")

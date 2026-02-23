@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.auth.deps import get_current_identity
+from backend.config import settings
 from backend.auth.models import (
     BootstrapRequest,
     BootstrapResponse,
@@ -25,6 +26,8 @@ router = APIRouter()
 @router.post("/dev/bootstrap", response_model=BootstrapResponse)
 async def dev_bootstrap(req: BootstrapRequest):
     """Create a principal and N AI credentials. Dev/testing only."""
+    if not settings.debug:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     principal = create_principal(req.display_name)
     creds = [
         create_credential(
