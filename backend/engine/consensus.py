@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -10,6 +11,8 @@ from backend.models.zone import Zone, ZoneKind, ZoneVisibility
 
 # Pending actions per table
 _pending_actions: dict[str, dict[str, PendingAction]] = {}
+# Timeout tasks per pending action (keyed "{table_id}:{action_id}")
+_timeout_tasks: dict[str, asyncio.Task] = {}
 
 
 def get_pending_actions(table_id: str) -> dict[str, PendingAction]:
@@ -20,6 +23,11 @@ def get_pending_actions(table_id: str) -> dict[str, PendingAction]:
 
 def clear_pending(table_id: str) -> None:
     _pending_actions.pop(table_id, None)
+    # Cancel any timeout tasks for this table
+    to_remove = [k for k in _timeout_tasks if k.startswith(f"{table_id}:")]
+    for k in to_remove:
+        _timeout_tasks[k].cancel()
+        del _timeout_tasks[k]
 
 
 def create_consensus_intent(
@@ -83,6 +91,9 @@ def create_consensus_intent(
     if not required_acks:
         return _commit_consensus(pa, table_state)
 
+    # Schedule consensus timeout
+    _schedule_timeout(table.table_id, action_id, table_state)
+
     return ActionResult(action_id=action_id, status="pending")
 
 
@@ -134,6 +145,9 @@ def handle_nack(
 
     pa.received_nacks.add(seat_id)
     table = table_state.table
+
+    # Cancel timeout task — dispute takes over
+    _cancel_timeout(table_id, action_id)
 
     table_state.append_event(
         event_type=EventType.NACK_RECEIVED,
@@ -187,6 +201,9 @@ def _commit_consensus(pa: PendingAction, table_state: TableState) -> ActionResul
     table = table_state.table
     pending = get_pending_actions(table.table_id)
 
+    # Cancel timeout task if running
+    _cancel_timeout(table.table_id, pa.action_id)
+
     # Handle UNDO via snapshot rollback before normal mutation path
     if pa.intent.action_type == ActionType.UNDO:
         if pa.intent.target_event_seq is None:
@@ -225,6 +242,49 @@ def _commit_consensus(pa: PendingAction, table_state: TableState) -> ActionResul
     )
 
     return ActionResult(action_id=pa.action_id, status="committed")
+
+
+def _cancel_timeout(table_id: str, action_id: str) -> None:
+    """Cancel a pending timeout task if it exists."""
+    task_key = f"{table_id}:{action_id}"
+    task = _timeout_tasks.pop(task_key, None)
+    if task:
+        task.cancel()
+
+
+def _schedule_timeout(
+    table_id: str,
+    action_id: str,
+    table_state: TableState,
+) -> None:
+    """Schedule auto-rollback after consensus_timeout_s."""
+    timeout_s = table_state.table.settings.consensus_timeout_s
+
+    async def _timeout_consensus():
+        await asyncio.sleep(timeout_s)
+        pending = get_pending_actions(table_id)
+        pa = pending.pop(action_id, None)
+        if pa:
+            log_start = len(table_state.event_log)
+            table_state.append_event(
+                event_type=EventType.ACTION_ROLLED_BACK,
+                seat_id=pa.proposer_seat_id,
+                action_id=action_id,
+                data={"reason": "consensus_timeout"},
+            )
+            from backend.api.ws import broadcast_event
+
+            for event in table_state.event_log[log_start:]:
+                await broadcast_event(table_id, event)
+        _timeout_tasks.pop(f"{table_id}:{action_id}", None)
+
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(_timeout_consensus())
+        _timeout_tasks[f"{table_id}:{action_id}"] = task
+    except RuntimeError:
+        # No event loop running (e.g., in sync tests)
+        pass
 
 
 def _validate_consensus_intent(intent: ActionIntent, seat: Seat, table: Table) -> None:

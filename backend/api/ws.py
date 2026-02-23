@@ -209,6 +209,9 @@ async def _handle_spectator_inbound(
         if not table:
             await send_error(ws, "Table not found")
             return
+        if len(msg.text) > table.settings.chat_max_length:
+            await send_error(ws, "Message too long", "MESSAGE_TOO_LONG")
+            return
         table_state = get_or_create_state(table)
         chat_msg = ChatMessage(
             message_id=str(uuid.uuid4()),
@@ -310,6 +313,9 @@ async def _handle_inbound(msg: WSInbound, table_id: str, seat_id: str, ws: WebSo
     elif msg.msg_type == "chat":
         if not msg.text:
             await send_error(ws, "Missing text", "MISSING_TEXT")
+            return
+        if len(msg.text) > table.settings.chat_max_length:
+            await send_error(ws, "Message too long", "MESSAGE_TOO_LONG")
             return
         # Players always chat on "game" channel
         chat_msg = ChatMessage(

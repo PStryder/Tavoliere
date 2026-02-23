@@ -22,6 +22,9 @@ def _clear_state():
     st._table_states.clear()
     ae.get_rate_limiter().clear()
     cons._pending_actions.clear()
+    for task in cons._timeout_tasks.values():
+        task.cancel()
+    cons._timeout_tasks.clear()
     opt.clear_optimistic("")  # clear all
     opt._optimistic_actions.clear()
 

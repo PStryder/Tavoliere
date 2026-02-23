@@ -102,6 +102,13 @@ def delete_table(table_id: str) -> bool:
     if not table:
         return False
 
+    # Clean up pending consensus actions and optimistic finalization tasks
+    from backend.engine.consensus import clear_pending
+    from backend.engine.optimistic import clear_optimistic
+
+    clear_pending(table_id)
+    clear_optimistic(table_id)
+
     # Persist event log before removing (TABLE_DESTROYED should already be in the log
     # if the caller appended it before calling delete_table)
     from backend.engine.persistence import persist_table
