@@ -10,7 +10,7 @@ import type { CredentialWithSecret } from "../types/models";
 
 export interface AuthState {
   token: string | null;
-  identity: { identity_id: string; display_name: string } | null;
+  identity: { identity_id: string; effective_identity: string; display_name: string } | null;
   credentials: CredentialWithSecret[];
   isAuthenticated: boolean;
 }
@@ -20,7 +20,7 @@ type AuthAction =
       type: "LOGIN";
       payload: {
         token: string;
-        identity: { identity_id: string; display_name: string };
+        identity: { identity_id: string; effective_identity: string; display_name: string };
         credentials: CredentialWithSecret[];
       };
     }
@@ -65,12 +65,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const cred = res.credentials[0];
     const tokenRes = await getToken(cred.client_id, cred.client_secret);
     setToken(tokenRes.access_token);
+    // effective_identity mirrors backend TokenPayload.effective_identity:
+    // AI credentials use credential_id, humans use principal identity_id.
+    const effectiveId = cred.player_kind === "ai"
+      ? cred.credential_id
+      : res.principal.identity_id;
     dispatch({
       type: "LOGIN",
       payload: {
         token: tokenRes.access_token,
         identity: {
           identity_id: res.principal.identity_id,
+          effective_identity: effectiveId,
           display_name: res.principal.display_name,
         },
         credentials: res.credentials,

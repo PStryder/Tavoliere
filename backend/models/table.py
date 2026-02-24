@@ -35,6 +35,7 @@ class TableSettings(BaseModel):
     zone_create_cooldown_s: float = 30.0
     consensus_timeout_s: float = Field(default=30.0, ge=5.0, le=300.0)
     chat_max_length: int = Field(default=500, ge=1, le=2000)
+    discard_face_up: bool = True
 
 
 class TableCreate(BaseModel):

@@ -26,8 +26,8 @@ const SUIT_SYMBOLS: Record<string, string> = {
 const SUIT_COLORS: Record<string, string> = {
   [Suit.HEARTS]: "text-red-500",
   [Suit.DIAMONDS]: "text-red-500",
-  [Suit.CLUBS]: "text-white",
-  [Suit.SPADES]: "text-white",
+  [Suit.CLUBS]: "text-gray-900",
+  [Suit.SPADES]: "text-gray-900",
 };
 
 const EMPTY_SET = new Set<string>();
@@ -84,17 +84,13 @@ export function HandZone({
 }: Props) {
   const [cardOrder, setCardOrder] = useState<string[]>(zone.card_ids);
 
-  // Sync local order when zone cards change (added/removed cards, or server reorder)
+  // Sync local order when zone cards change (membership or order)
   useEffect(() => {
-    const zoneSet = new Set(zone.card_ids);
-    const localSet = new Set(cardOrder);
+    const orderMatches =
+      zone.card_ids.length === cardOrder.length &&
+      zone.card_ids.every((id, i) => id === cardOrder[i]);
 
-    // If the card membership changed (cards added or removed), adopt server order
-    const sameMembers =
-      zoneSet.size === localSet.size &&
-      zone.card_ids.every((id) => localSet.has(id));
-
-    if (!sameMembers) {
+    if (!orderMatches) {
       setCardOrder(zone.card_ids);
     }
   }, [zone.card_ids]); // eslint-disable-line react-hooks/exhaustive-deps

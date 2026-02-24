@@ -37,5 +37,6 @@ class Zone(BaseModel):
     label: str = ""
     capacity: int | None = None
     ordering: ZoneOrdering = ZoneOrdering.ORDERED
+    face_up_default: bool | None = None
     seat_visibility: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)

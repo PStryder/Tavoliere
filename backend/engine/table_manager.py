@@ -37,18 +37,21 @@ def create_table(req: TableCreate) -> Table:
         visibility=ZoneVisibility.PUBLIC,
         label="Deck",
         card_ids=[c.unique_id for c in cards],
+        face_up_default=False,
     )
     discard_zone = Zone(
         zone_id="discard",
         kind=ZoneKind.DISCARD,
         visibility=ZoneVisibility.PUBLIC,
         label="Discard",
+        face_up_default=req.settings.discard_face_up,
     )
     center_zone = Zone(
         zone_id="center",
         kind=ZoneKind.CENTER,
         visibility=ZoneVisibility.PUBLIC,
         label="Center",
+        face_up_default=True,
     )
     table.zones = [deck_zone, discard_zone, center_zone]
 

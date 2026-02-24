@@ -365,6 +365,10 @@ def _move_cards(card_ids: list[str], source_id: str, target_id: str, table: Tabl
     for cid in card_ids:
         source.card_ids.remove(cid)
         target.card_ids.append(cid)
+        if target.face_up_default is not None:
+            card = table.cards.get(cid)
+            if card:
+                card.face_up = target.face_up_default
 
 
 def _deal_round_robin(
@@ -401,6 +405,10 @@ def _deal_round_robin(
         target = ordered_targets[i % len(ordered_targets)]
         source.card_ids.remove(cid)
         target.card_ids.append(cid)
+        if target.face_up_default is not None:
+            card = table.cards.get(cid)
+            if card:
+                card.face_up = target.face_up_default
 
 
 def _create_zone(intent: ActionIntent, proposer_seat_id: str, table: Table) -> None:

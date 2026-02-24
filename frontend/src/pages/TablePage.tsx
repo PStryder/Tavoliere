@@ -30,7 +30,7 @@ function TablePageInner() {
     try {
       const fresh = await getTable(tableId);
       const mySeat = fresh.seats.find(
-        (s) => s.identity_id === identity?.identity_id,
+        (s) => s.identity_id === identity?.effective_identity,
       );
       dispatch({
         type: "STATE_SYNC",
@@ -53,7 +53,7 @@ function TablePageInner() {
   } = useTableSocket({
     tableId: tableId ?? "",
     token: token ?? "",
-    identityId: identity?.identity_id ?? "",
+    identityId: identity?.effective_identity ?? "",
     dispatch,
     onNeedsResync: handleResync,
   });

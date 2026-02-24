@@ -70,15 +70,25 @@ function handleEvent(
   switch (event.event_type) {
     case EventType.ACTION_COMMITTED: {
       // For v0.1: request resync for complex state mutations
+      // Also remove from pending so the bar doesn't flash briefly
       return {
         ...state,
         needsResync: true,
         lastCommittedSeq: event.seq ?? state.lastCommittedSeq,
+        pendingActions: state.pendingActions.filter(
+          (p) => p.action_id !== event.action_id,
+        ),
       };
     }
 
     case EventType.ACTION_ROLLED_BACK:
-      return { ...state, needsResync: true };
+      return {
+        ...state,
+        needsResync: true,
+        pendingActions: state.pendingActions.filter(
+          (p) => p.action_id !== event.action_id,
+        ),
+      };
 
     case EventType.ACTION_FINALIZED: {
       const actionId = event.action_id;

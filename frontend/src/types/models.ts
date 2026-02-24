@@ -33,6 +33,7 @@ export interface Zone {
   label: string;
   capacity?: number | null;
   ordering?: ZoneOrdering;
+  face_up_default?: boolean | null;
   seat_visibility?: string[];
   metadata?: Record<string, unknown>;
 }

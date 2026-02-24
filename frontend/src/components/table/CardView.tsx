@@ -21,8 +21,8 @@ const SUIT_SYMBOLS: Record<string, string> = {
 const SUIT_COLORS: Record<string, string> = {
   [Suit.HEARTS]: "text-red-500",
   [Suit.DIAMONDS]: "text-red-500",
-  [Suit.CLUBS]: "text-white",
-  [Suit.SPADES]: "text-white",
+  [Suit.CLUBS]: "text-gray-900",
+  [Suit.SPADES]: "text-gray-900",
 };
 
 export function CardView({
